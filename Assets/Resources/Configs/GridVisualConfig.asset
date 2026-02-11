@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 65ccb879d15ddfd49a13eee3c62b7067, type: 3}
+  m_Name: GridVisualConfig
+  m_EditorClassIdentifier: 
+  tilePrefab: {fileID: 581712417463258210, guid: 313925a22a9a655459b8949a762a6db1, type: 3}
+  tileVisuals:
+  - tileType: 0
+    material: {fileID: 2100000, guid: 027cdec62b0835a4fa4b5094b3b373d8, type: 2}
+  - tileType: 1
+    material: {fileID: 2100000, guid: 6f113d3b744df6a41ba687b7b4f94aa4, type: 2}
+  - tileType: 2
+    material: {fileID: 2100000, guid: 3dbb5fe6228d6e045a0dacb074413bdf, type: 2}
+  - tileType: 3
+    material: {fileID: 2100000, guid: 80cb94fa2eccdc049907b16030f588de, type: 2}
+  spawnPointMaterial: {fileID: 2100000, guid: 2e179453f24948a43ab294e7bfbe699c, type: 2}
+  goalPointMaterial: {fileID: 2100000, guid: 88b1eb23e3ab40241b0ae42df87b7e4a, type: 2}
+  occupiedMaterial: {fileID: 2100000, guid: 3e88153fedd7bb042b1b20e100057991, type: 2}
