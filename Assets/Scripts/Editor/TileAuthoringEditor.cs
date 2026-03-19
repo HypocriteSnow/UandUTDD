@@ -46,6 +46,8 @@ namespace ArknightsLite.Editor {
                         EditorGUILayout.LabelField("🏁 终点 (Goal Point)", EditorStyles.boldLabel);
                         EditorGUILayout.HelpBox("这是一个敌人目标点，运行时将强制为 Ground 类型且可通行。", MessageType.Info);
                     }
+                } else {
+                    EditorGUILayout.HelpBox("当前格子由编辑器工作区/白模驱动，不直接绑定 LevelConfig。", MessageType.Info);
                 }
             }
             

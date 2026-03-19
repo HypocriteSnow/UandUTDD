@@ -5,6 +5,9 @@ using UnityEngine.SceneManagement;
 using System.IO;
 using ArknightsLite.Config;
 using ArknightsLite.Model;
+using ArknightsLite.Editor.LevelEditor.Core;
+using ArknightsLite.Editor.LevelEditor.Map;
+using ArknightsLite.Editor.LevelEditor.Services;
 
 /// <summary>
 /// 关卡编辑器窗口
@@ -21,6 +24,8 @@ public class LevelEditorWindow : EditorWindow {
     // ==================== 编辑状态 ====================
     
     private GameObject _gridParent;
+    private WhiteboxRoot _whiteboxRoot;
+    private WorkspaceMapController _workspaceMapController;
     private bool _isEditMode = false;
     
     
@@ -35,6 +40,7 @@ public class LevelEditorWindow : EditorWindow {
     // ==================== 关卡管理 ====================
     
     private string _newLevelName = "NewLevel";
+    private readonly LevelEditorSession _session = new LevelEditorSession();
     
     
     // ==================== 窗口管理 ====================
@@ -80,14 +86,32 @@ public class LevelEditorWindow : EditorWindow {
     /// 关卡管理区域
     /// </summary>
     private void DrawLevelManagementSection() {
-        EditorGUILayout.LabelField("关卡管理", EditorStyles.boldLabel);
+        EditorGUILayout.LabelField("工作区", EditorStyles.boldLabel);
         
         EditorGUILayout.BeginHorizontal();
-        _newLevelName = EditorGUILayout.TextField("新关卡名称", _newLevelName);
-        if (GUILayout.Button("创建配置", GUILayout.Width(80))) {
-            EditorApplication.delayCall += CreateLevelConfig;
+        _newLevelName = EditorGUILayout.TextField("关卡名称", _newLevelName);
+        if (GUILayout.Button("新建工作区", GUILayout.Width(80))) {
+            EditorApplication.delayCall += CreateWorkspace;
         }
         EditorGUILayout.EndHorizontal();
+
+        var workspace = _session.CurrentWorkspace;
+        bool hasWorkspace = workspace != null;
+
+        if (hasWorkspace) {
+            EditorGUILayout.HelpBox($"当前工作区: {workspace.LevelName} ({workspace.MapWidth}x{workspace.MapDepth})", MessageType.Info);
+        } else {
+            EditorGUILayout.HelpBox("先创建工作区，再生成/刷新白模。", MessageType.Info);
+        }
+
+        GUI.enabled = hasWorkspace;
+        if (GUILayout.Button("生成/刷新白模", GUILayout.Height(30))) {
+            EditorApplication.delayCall += GenerateWhiteboxFromWorkspace;
+        }
+        GUI.enabled = true;
+
+        EditorGUILayout.Space(5);
+        EditorGUILayout.LabelField("旧配置兼容", EditorStyles.miniBoldLabel);
         
         bool hasConfigs = (_config != null && _visualConfig != null);
         
@@ -110,13 +134,20 @@ public class LevelEditorWindow : EditorWindow {
     /// 配置区域
     /// </summary>
     private void DrawConfigSection() {
-        EditorGUILayout.LabelField("配置文件", EditorStyles.boldLabel);
-        
-        _config = (LevelConfig)EditorGUILayout.ObjectField("Level Config", _config, typeof(LevelConfig), false);
+        EditorGUILayout.LabelField("运行时配置兼容", EditorStyles.boldLabel);
+
+        var nextConfig = (LevelConfig)EditorGUILayout.ObjectField("Level Config", _config, typeof(LevelConfig), false);
+        if (nextConfig != _config) {
+            _config = nextConfig;
+            _session.SetCurrentLevel(_config);
+        }
+
         _visualConfig = (GridVisualConfig)EditorGUILayout.ObjectField("Visual Config", _visualConfig, typeof(GridVisualConfig), false);
         
-        if (_config == null || _visualConfig == null) {
-            EditorGUILayout.HelpBox("请先拖入 LevelConfig 和 GridVisualConfig", MessageType.Warning);
+        if (_session.CurrentWorkspace != null) {
+            EditorGUILayout.HelpBox("当前以 Workspace 驱动白模；这里保留旧 LevelConfig/GridVisualConfig 的兼容入口。", MessageType.Info);
+        } else if (_config == null || _visualConfig == null) {
+            EditorGUILayout.HelpBox("如需走旧流程，请拖入 LevelConfig 和 GridVisualConfig。", MessageType.Warning);
         }
     }
     
@@ -126,7 +157,7 @@ public class LevelEditorWindow : EditorWindow {
     private void DrawEditSection() {
         EditorGUILayout.LabelField("编辑控制", EditorStyles.boldLabel);
         
-        GUI.enabled = (_config != null && _visualConfig != null);
+        GUI.enabled = (_session.CurrentWorkspace != null || (_config != null && _visualConfig != null));
         
         if (_isEditMode) {
             EditorGUILayout.HelpBox("编辑模式已激活\n在 Scene 视图中可以看到网格", MessageType.Info);
@@ -185,15 +216,24 @@ public class LevelEditorWindow : EditorWindow {
     private void DrawInfoSection() {
         EditorGUILayout.LabelField("统计信息", EditorStyles.boldLabel);
         
-        if (_config != null) {
+        if (_session.CurrentWorkspace != null) {
+            EditorGUILayout.LabelField($"当前工作区: {_session.CurrentWorkspace.LevelName}");
+            EditorGUILayout.LabelField($"工作区尺寸: {_session.CurrentWorkspace.MapWidth}x{_session.CurrentWorkspace.MapDepth}");
+            EditorGUILayout.LabelField($"当前模块: {_session.Mode}");
+        } else if (_config != null) {
             EditorGUILayout.LabelField($"地图尺寸: {_config.mapWidth}x{_config.mapDepth}");
             EditorGUILayout.LabelField($"特殊格子数量: {_config.specialTiles.Count}");
             EditorGUILayout.LabelField($"起点数量: {_config.spawnPoints.Count}");
+            EditorGUILayout.LabelField($"当前模块: {_session.Mode}");
         }
         
         if (_isEditMode && _gridParent != null) {
             int tileCount = _gridParent.transform.childCount;
             EditorGUILayout.LabelField($"编辑网格: {tileCount} 个格子");
+        }
+
+        if (_whiteboxRoot != null) {
+            EditorGUILayout.LabelField($"白模格子: {_whiteboxRoot.transform.childCount} 个");
         }
     }
     
@@ -204,6 +244,11 @@ public class LevelEditorWindow : EditorWindow {
     /// 进入编辑模式
     /// </summary>
     private void EnterEditMode() {
+        if (_session.CurrentWorkspace != null) {
+            GenerateWhiteboxFromWorkspace();
+            return;
+        }
+
         if (_config == null || _visualConfig == null) {
             EditorUtility.DisplayDialog("错误", "请先配置 LevelConfig 和 GridVisualConfig", "确定");
             return;
@@ -216,6 +261,7 @@ public class LevelEditorWindow : EditorWindow {
         
         GenerateEditGrid();
         _isEditMode = true;
+        _session.StartEditing(_config);
         
         Debug.Log("[LevelEditor] 进入编辑模式");
     }
@@ -232,6 +278,7 @@ public class LevelEditorWindow : EditorWindow {
         
         _isEditMode = false;
         _brushEnabled = false;
+        _session.StopEditing();
         
         Debug.Log("[LevelEditor] 退出编辑模式，配置已保存");
         
@@ -380,6 +427,14 @@ public class LevelEditorWindow : EditorWindow {
             var authoring = hit.collider.GetComponent<TileAuthoring>();
             
             if (authoring != null) {
+                if (_session.CurrentWorkspace != null) {
+                    _workspaceMapController = _workspaceMapController ?? new WorkspaceMapController(_session.CurrentWorkspace);
+                    Undo.RecordObject(authoring, "Paint Workspace Tile");
+                    _workspaceMapController.PaintTile(authoring.X, authoring.Z, _brushType, _brushHeight);
+                    e.Use();
+                    return;
+                }
+
                 // 记录 Undo
                 Undo.RecordObject(authoring, "Paint Tile");
                 Undo.RecordObject(_config, "Paint Tile");
@@ -432,6 +487,39 @@ public class LevelEditorWindow : EditorWindow {
     // ==================== 关卡管理功能 ====================
     
     /// <summary>
+    /// 创建新的工作区
+    /// </summary>
+    private void CreateWorkspace() {
+        if (string.IsNullOrWhiteSpace(_newLevelName)) {
+            EditorUtility.DisplayDialog("错误", "关卡名称不能为空", "确定");
+            return;
+        }
+
+        var workspace = LevelEditorWorkspace.CreateNew(_newLevelName);
+        _session.SetWorkspace(workspace);
+        _workspaceMapController = new WorkspaceMapController(workspace);
+
+        Debug.Log($"[LevelEditor] 创建了新的工作区: {workspace.LevelName}");
+    }
+
+    /// <summary>
+    /// 从当前工作区生成或刷新白模
+    /// </summary>
+    private void GenerateWhiteboxFromWorkspace() {
+        var workspace = _session.CurrentWorkspace;
+        if (workspace == null) {
+            EditorUtility.DisplayDialog("错误", "请先创建工作区", "确定");
+            return;
+        }
+
+        _workspaceMapController = _workspaceMapController ?? new WorkspaceMapController(workspace);
+        _whiteboxRoot = WhiteboxGenerationService.GenerateIntoOpenScene(workspace, _visualConfig);
+        _isEditMode = true;
+        _session.StartEditing();
+        Debug.Log($"[LevelEditor] 已根据工作区生成白模: {workspace.LevelName}");
+    }
+
+    /// <summary>
     /// 创建新的关卡配置
     /// </summary>
     private void CreateLevelConfig() {
@@ -471,6 +559,7 @@ public class LevelEditorWindow : EditorWindow {
         
         // 自动分配到编辑器
         _config = newConfig;
+        _session.SetCurrentLevel(_config);
         
         Debug.Log($"[LevelEditor] 创建了新的关卡配置: {configPath}");
         EditorUtility.DisplayDialog("成功", $"关卡配置 {_newLevelName} 已创建", "确定");
@@ -484,91 +573,16 @@ public class LevelEditorWindow : EditorWindow {
     /// 构建场景
     /// </summary>
     private void BuildScene() {
-        if (_config == null || _visualConfig == null) {
-            EditorUtility.DisplayDialog("错误", "请先配置 LevelConfig 和 GridVisualConfig", "确定");
-            return;
-        }
-        
-        // 检查配置有效性
-        if (!_config.Validate()) {
-            EditorUtility.DisplayDialog("错误", "LevelConfig 配置无效，请检查 Console", "确定");
-            return;
-        }
-        
         // 保存当前场景
         if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) {
             return;
         }
-        
-        // 创建新场景
-        Scene newScene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-        
-        // 创建 GameManager
-        GameObject gameManagerObj = new GameObject("GameManager");
-        ArknightsLite.GameMain gameMain = gameManagerObj.AddComponent<ArknightsLite.GameMain>();
-        
-        // 使用反射设置私有字段
-        var gameMainType = typeof(ArknightsLite.GameMain);
-        var levelConfigField = gameMainType.GetField("_levelConfig", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        if (levelConfigField != null) {
-            levelConfigField.SetValue(gameMain, _config);
-        }
-        
-        // 创建 GridVisualizer
-        GameObject gridVisualizerObj = new GameObject("GridVisualizer");
-        ArknightsLite.View.GridRenderer gridRenderer = gridVisualizerObj.AddComponent<ArknightsLite.View.GridRenderer>();
-        
-        // 使用反射设置私有字段
-        var gridRendererType = typeof(ArknightsLite.View.GridRenderer);
-        var visualConfigField = gridRendererType.GetField("_visualConfig", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        var levelConfigField2 = gridRendererType.GetField("_levelConfig", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        if (visualConfigField != null) {
-            visualConfigField.SetValue(gridRenderer, _visualConfig);
-        }
-        if (levelConfigField2 != null) {
-            levelConfigField2.SetValue(gridRenderer, _config);
-        }
-        
-        // 创建主相机
-        GameObject cameraObj = new GameObject("Main Camera");
-        Camera camera = cameraObj.AddComponent<Camera>();
-        cameraObj.tag = "MainCamera";
-        cameraObj.AddComponent<AudioListener>();
-        
-        // 设置相机位置（俯视角度）
-        float mapCenterX = _config.mapWidth * _config.cellSize * 0.5f;
-        float mapCenterZ = _config.mapDepth * _config.cellSize * 0.5f;
-        float mapMaxSize = Mathf.Max(_config.mapWidth, _config.mapDepth) * _config.cellSize;
-        
-        cameraObj.transform.position = new Vector3(mapCenterX, mapMaxSize * 0.8f, mapCenterZ - mapMaxSize * 0.5f);
-        cameraObj.transform.rotation = Quaternion.Euler(45, 0, 0);
-        
-        // 创建方向光
-        GameObject lightObj = new GameObject("Directional Light");
-        Light light = lightObj.AddComponent<Light>();
-        light.type = LightType.Directional;
-        lightObj.transform.rotation = Quaternion.Euler(50, -30, 0);
-        
-        // 保存场景
-        string scenePath = $"Assets/Scenes/Levels/{_config.name}.unity";
-        
-        // 确保目录存在
-        string sceneDir = Path.GetDirectoryName(scenePath);
-        if (!Directory.Exists(sceneDir)) {
-            Directory.CreateDirectory(sceneDir);
-        }
-        
-        bool saved = EditorSceneManager.SaveScene(newScene, scenePath);
-        
-        if (saved) {
+
+        if (LevelSceneBuilder.TryBuild(_config, _visualConfig, out string scenePath, out string errorMessage)) {
             Debug.Log($"[LevelEditor] 场景已保存到: {scenePath}");
-            
-            // 将场景添加到构建设置（可选）
-            AddSceneToBuildSettings(scenePath);
-            
             EditorUtility.DisplayDialog("成功", $"场景已创建并保存到 {scenePath}", "确定");
         } else {
-            EditorUtility.DisplayDialog("错误", "场景保存失败", "确定");
+            EditorUtility.DisplayDialog("错误", errorMessage, "确定");
         }
     }
     
@@ -576,62 +590,15 @@ public class LevelEditorWindow : EditorWindow {
     /// 从当前场景加载配置
     /// </summary>
     private void LoadFromScene() {
-        // 查找 GameMain 组件
-        ArknightsLite.GameMain gameMain = UnityEngine.Object.FindObjectOfType<ArknightsLite.GameMain>();
-        
-        if (gameMain == null) {
-            EditorUtility.DisplayDialog("错误", "当前场景中未找到 GameMain 组件", "确定");
-            return;
-        }
-        
-        // 使用反射读取私有字段
-        var gameMainType = typeof(ArknightsLite.GameMain);
-        var levelConfigField = gameMainType.GetField("_levelConfig", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        
-        if (levelConfigField != null) {
-            LevelConfig config = levelConfigField.GetValue(gameMain) as LevelConfig;
-            
-            if (config != null) {
-                _config = config;
-                Debug.Log($"[LevelEditor] 已从场景加载配置: {config.name}");
-                EditorUtility.DisplayDialog("成功", $"已加载配置: {config.name}", "确定");
-            } else {
-                EditorUtility.DisplayDialog("错误", "GameMain 中的 LevelConfig 为空", "确定");
-            }
+        if (LevelSceneLoader.TryLoadFromOpenScene(out LevelConfig config, out GridVisualConfig visualConfig, out string errorMessage)) {
+            _config = config;
+            _visualConfig = visualConfig;
+            _session.SetCurrentLevel(_config);
+
+            Debug.Log($"[LevelEditor] 已从场景加载配置: {config.name}");
+            EditorUtility.DisplayDialog("成功", $"已加载配置: {config.name}", "确定");
         } else {
-            EditorUtility.DisplayDialog("错误", "无法读取 GameMain 的 _levelConfig 字段", "确定");
-        }
-        
-        // 同时尝试读取 GridRenderer 的配置
-        ArknightsLite.View.GridRenderer gridRenderer = UnityEngine.Object.FindObjectOfType<ArknightsLite.View.GridRenderer>();
-        if (gridRenderer != null) {
-            var gridRendererType = typeof(ArknightsLite.View.GridRenderer);
-            var visualConfigField = gridRendererType.GetField("_visualConfig", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            
-            if (visualConfigField != null) {
-                GridVisualConfig visualConfig = visualConfigField.GetValue(gridRenderer) as GridVisualConfig;
-                if (visualConfig != null) {
-                    _visualConfig = visualConfig;
-                    Debug.Log($"[LevelEditor] 已从场景加载视觉配置: {visualConfig.name}");
-                }
-            }
-        }
-    }
-    
-    /// <summary>
-    /// 将场景添加到构建设置
-    /// </summary>
-    private void AddSceneToBuildSettings(string scenePath) {
-        // 获取当前的场景列表
-        var scenes = new System.Collections.Generic.List<EditorBuildSettingsScene>(EditorBuildSettings.scenes);
-        
-        // 检查场景是否已存在
-        bool exists = scenes.Exists(s => s.path == scenePath);
-        
-        if (!exists) {
-            scenes.Add(new EditorBuildSettingsScene(scenePath, true));
-            EditorBuildSettings.scenes = scenes.ToArray();
-            Debug.Log($"[LevelEditor] 场景已添加到构建设置: {scenePath}");
+            EditorUtility.DisplayDialog("错误", errorMessage, "确定");
         }
     }
 }

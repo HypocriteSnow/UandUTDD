@@ -1,382 +1,460 @@
-# 开发规范 - 关卡编辑器 (Level Editor)
+# 目标规格 - Unity 关卡编辑器重构
 
-## 1. 系统概述
+## 1. 文档目的
 
-关卡编辑器是一套可视化的场景编辑工具，允许设计师在 Unity 编辑器中直接绘制和修改关卡布局，无需手动编写坐标数据。
+本文档不是网页编辑器源码说明，也不是某个 EditorWindow 的 UI 草图，而是用于先回答三个最核心的问题：
 
-### 1.1 核心设计理念
-- **所见即所得 (WYSIWYG)**：在 Scene 视图中直接看到并编辑格子。
-- **数据驱动**：所有修改自动同步到 `LevelConfig` (ScriptableObject)。
-- **非破坏性**：编辑用的 GameObject 不会污染运行时场景。
-- **防腐层隔离**：编辑器代码严格隔离在 `Editor` 文件夹，不影响运行时性能。
+1. 我们现在到底要做一个什么样的 Unity 关卡编辑器。
+2. 网页编辑器已经实现了哪些能力，哪些应当成为 Unity 版目标。
+3. 当前 Unity 编辑器为什么不适合继续叠功能，后续应该如何重构。
 
-## 2. 架构设计
+本次文档的目标是先把**需求、目标、边界、行动方向**说清楚，再进入具体实现。
 
-### 2.1 三层架构
+---
 
-```
-┌─────────────────────────────────────────────┐
-│         Data Layer (数据层)                  │
-│  ┌──────────────────────────────────────┐   │
-│  │ LevelConfig (ScriptableObject)       │   │
-│  │ - defaultTileType (默认类型)         │   │
-│  │ - specialTiles (差异数据)            │   │
-│  │ - SetTileData() (回写接口)           │   │
-│  └──────────────────────────────────────┘   │
-└─────────────────────────────────────────────┘
-                     ↕ (双向同步)
-┌─────────────────────────────────────────────┐
-│      Editor Layer (编辑器交互层)            │
-│  ┌─────────────────┐  ┌──────────────────┐ │
-│  │ LevelEditorWindow│  │ TileAuthoring    │ │
-│  │ - 生成网格       │  │ - 持有坐标       │ │
-│  │ - 笔刷工具       │  │ - 同步数据       │ │
-│  │ - Scene输入处理  │  │ - 更新视觉       │ │
-│  └─────────────────┘  └──────────────────┘ │
-└─────────────────────────────────────────────┘
-                     ↓ (生成运行时)
-┌─────────────────────────────────────────────┐
-│       Runtime Layer (运行时层)               │
-│  ┌──────────────────────────────────────┐   │
-│  │ GridModel → GridRenderer             │   │
-│  │ (读取 LevelConfig，不感知编辑器)     │   │
-│  └──────────────────────────────────────┘   │
-└─────────────────────────────────────────────┘
-```
+## 2. 核心需求与边界
 
-### 2.2 数据流向
+### 2.1 用户核心需求
 
-**编辑流程**：
-```
-1. LevelEditorWindow.Generate()
-   → 读取 LevelConfig
-   → 生成 TileAuthoring GameObject
+本次需求的核心不是“继续讨论试玩大厅如何设计”，而是：
 
-2. 用户修改 TileAuthoring.tileType (Inspector)
-   → OnValidate() 触发
-   → LevelConfig.SetTileData()
-   → EditorUtility.SetDirty()
+1. 以网页编辑器 `d:\Program Files\Game\arknights-editor\src\LevelEditor.jsx` 已实现的功能为目标基线。
+2. 对当前 Unity 项目中的关卡编辑器进行系统性优化和重构。
+3. 重构不只针对功能缺失，也针对逻辑结构、模块拆分、数据边界和可扩展性。
+4. 最终要得到一个**解耦、模块化、简洁、可持续迭代**的 Unity 关卡编辑器。
 
-3. 保存资源 (Ctrl+S)
-   → LevelConfig 持久化到磁盘
-```
+### 2.2 明确边界
 
-**运行流程**：
-```
-1. GameMain.Start()
-   → GridModel.LoadFromConfig(LevelConfig)
-   → GridRenderer.GenerateGrid()
-   → 运行时网格（与编辑器无关）
-```
+为了避免后续开发发散，先明确本次不以这些方向为中心：
 
-## 3. 核心组件规范
+1. **不以还原网页端“试玩大厅”为目标**
+   - 在 Unity 中，只要关卡配置正确，能直接进入 `Play` 测试即可。
+2. **不在编辑器里长期维护一套完整战斗运行器**
+   - 编辑器负责数据生产、校验、测试入口；真实运行交给 Unity Runtime。
+3. **不先扩大战斗系统实现范围**
+   - 当前重点是编辑器重构与目标功能补齐，不是先做完整 Combat / Nav / Entity 运行时。
 
-### 3.1 LevelConfig (数据层)
+### 2.3 一句话目标
 
-#### 新增字段
-```csharp
-public TileType defaultTileType = TileType.Forbidden;
-```
+> 以网页编辑器已实现的功能为目标，对当前 Unity 关卡编辑器进行面向长期开发的重构与补强，使其成为一套可持续扩展的关卡生产工具，而不是继续堆在单一窗口上的早期工具。
 
-#### 数据存储策略
-- **默认格子**：不存储在 `specialTiles` 中（节省空间）。
-- **非默认格子**：仅当 `tileType != defaultTileType` 时，添加到 `specialTiles`。
-- **删除优化**：当格子被改回默认类型时，从 `specialTiles` 中移除。
+---
 
-#### 回写接口
-```csharp
-/// <summary>
-/// 设置格子数据（用于编辑器回写）
-/// </summary>
-/// <param name="x">X坐标</param>
-/// <param name="z">Z坐标</param>
-/// <param name="data">格子数据（如果为null或等于默认类型，则从列表中移除）</param>
-public void SetTileData(int x, int z, TileData data) {
-    // 1. 查找现有数据
-    var existing = specialTiles.Find(t => t.x == x && t.z == z);
-    
-    // 2. 判断是否为默认类型
-    bool isDefault = (data == null || data.tileType == defaultTileType);
-    
-    // 3. 添加、更新或移除
-    if (isDefault) {
-        if (existing != null) specialTiles.Remove(existing);
-    } else {
-        if (existing != null) {
-            // 更新现有数据
-            existing.tileType = data.tileType;
-            existing.heightLevel = data.heightLevel;
-            // ...
-        } else {
-            // 添加新数据
-            specialTiles.Add(data);
-        }
-    }
-}
-```
+## 3. 网页编辑器的目标功能基线
 
-### 3.2 TileAuthoring (交互组件)
+网页编辑器不是单纯的地图涂色器，而是一套完整的关卡生产工具。Unity 版的目标能力，应当以它已经验证过的能力为基线。
 
-#### 职责
-- **数据桥梁**：连接场景 GameObject 和 LevelConfig。
-- **视觉反馈**：根据类型实时更新材质颜色。
-- **自动同步**：Inspector 修改时自动回写配置。
+### 3.1 地图编辑
 
-#### 代码规范
-```csharp
-#if UNITY_EDITOR
-using UnityEditor;
+网页编辑器已经支持：
 
-[ExecuteInEditMode]
-public class TileAuthoring : MonoBehaviour {
-    [Header("坐标（只读）")]
-    [SerializeField] private int _x;
-    [SerializeField] private int _z;
-    
-    [Header("格子配置")]
-    public TileType tileType = TileType.Forbidden;
-    public int heightLevel = 0;
-    
-    [HideInInspector]
-    public LevelConfig config;
-    
-    [HideInInspector]
-    public GridVisualConfig visualConfig;
-    
-    // 当 Inspector 值改变时触发
-    private void OnValidate() {
-        if (config == null) return;
-        
-        SyncToConfig();
-        UpdateVisual();
-    }
-    
-    // 同步到配置
-    private void SyncToConfig() {
-        var data = new TileData {
-            x = _x,
-            z = _z,
-            tileType = tileType,
-            heightLevel = heightLevel,
-            walkable = (tileType != TileType.Forbidden),
-            deployTag = "All"
-        };
-        
-        config.SetTileData(_x, _z, data);
-        EditorUtility.SetDirty(config);
-    }
-    
-    // 更新视觉
-    private void UpdateVisual() {
-        if (visualConfig == null) return;
-        
-        var renderer = GetComponent<MeshRenderer>();
-        if (renderer != null) {
-            renderer.material = visualConfig.GetMaterialForType(tileType);
-        }
-        
-        // 更新高度
-        var pos = transform.position;
-        pos.y = heightLevel * 1.0f;
-        transform.position = pos;
-    }
-}
-#endif
-```
+1. 绘制多种地图格类型
+2. 调整地图尺寸
+3. 标记起点、终点
+4. 标记传送入口、传送出口
+5. 地图画布缩放与可视反馈
 
-#### 注意事项
-- **必须使用 `#if UNITY_EDITOR` 宏**：确保不编译到运行时。
-- **ExecuteInEditMode**：允许在编辑模式下执行 `OnValidate`。
-- **SetDirty**：必须调用，否则修改不会保存。
+这说明 Unity 版不能只停留在“改 TileType”，而要具备完整地图表达能力。
 
-### 3.3 LevelEditorWindow (编辑器窗口)
+### 3.2 关卡结构配置
 
-#### 核心功能
-1. **生成编辑网格**：根据 Config 创建临时 GameObject。
-2. **清理网格**：编辑完成后删除临时物体。
-3. **笔刷工具**：在 Scene 视图中涂抹格子类型。
+网页编辑器已经围绕单一 `level` 对象组织关卡数据，至少包括：
 
-#### 代码规范
-```csharp
-public class LevelEditorWindow : EditorWindow {
-    private LevelConfig _config;
-    private GridVisualConfig _visualConfig;
-    private GameObject _gridParent;
-    
-    // 笔刷设置
-    private TileType _brushType = TileType.Ground;
-    private bool _brushEnabled = false;
-    
-    [MenuItem("ArknightsLite/Level Editor")]
-    public static void ShowWindow() {
-        GetWindow<LevelEditorWindow>("关卡编辑器");
-    }
-    
-    private void OnEnable() {
-        SceneView.duringSceneGui += OnSceneGUI;
-    }
-    
-    private void OnDisable() {
-        SceneView.duringSceneGui -= OnSceneGUI;
-    }
-    
-    // 生成网格
-    private void GenerateEditGrid() {
-        // 1. 清理旧网格
-        ClearEditGrid();
-        
-        // 2. 创建父节点（DontSave 避免保存到场景）
-        _gridParent = new GameObject("LevelEditGrid");
-        _gridParent.hideFlags = HideFlags.DontSave;
-        
-        // 3. 生成格子
-        for (int x = 0; x < _config.mapWidth; x++) {
-            for (int z = 0; z < _config.mapDepth; z++) {
-                CreateTileAuthoring(x, z);
-            }
-        }
-    }
-    
-    // 创建单个格子
-    private void CreateTileAuthoring(int x, int z) {
-        var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        cube.transform.SetParent(_gridParent.transform);
-        cube.transform.localScale = new Vector3(0.95f, 0.2f, 0.95f);
-        cube.transform.position = new Vector3(x, 0, z);
-        cube.name = $"Tile_{x}_{z}";
-        
-        var authoring = cube.AddComponent<TileAuthoring>();
-        authoring.config = _config;
-        authoring.visualConfig = _visualConfig;
-        // 初始化类型
-        var data = _config.GetTileData(x, z);
-        authoring.tileType = data?.tileType ?? _config.defaultTileType;
-        authoring.heightLevel = data?.heightLevel ?? 0;
-    }
-    
-    // Scene 视图输入处理
-    private void OnSceneGUI(SceneView sceneView) {
-        if (!_brushEnabled) return;
-        
-        Event e = Event.current;
-        
-        // 按住鼠标左键涂抹
-        if (e.type == EventType.MouseDrag || e.type == EventType.MouseDown) {
-            if (e.button == 0) {
-                Ray ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
-                if (Physics.Raycast(ray, out RaycastHit hit)) {
-                    var authoring = hit.collider.GetComponent<TileAuthoring>();
-                    if (authoring != null) {
-                        Undo.RecordObject(authoring, "Paint Tile");
-                        authoring.tileType = _brushType;
-                        EditorUtility.SetDirty(authoring);
-                        e.Use(); // 消耗事件
-                    }
-                }
-            }
-        }
-    }
-}
-```
+1. 地图尺寸与 `mapData`
+2. 起点 / 终点语义
+3. 传送门配置
+4. 波次数据
+5. 敌人模板
+6. 干员模板
+7. 一些全局战斗参数
 
-## 4. 使用流程
+这意味着 Unity 版编辑器应是“关卡整体配置器”，而不是只维护网格。
 
-### 4.1 编辑关卡
-1. **打开编辑器**：`ArknightsLite -> Level Editor`。
-2. **选择配置**：拖入 `LevelConfig` 和 `GridVisualConfig`。
-3. **生成网格**：点击"生成编辑网格"。
-4. **编辑方式**：
-   - **方式一（Inspector）**：选中格子，修改 `Tile Type`。
-   - **方式二（笔刷）**：勾选"启用笔刷"，选择类型，鼠标涂抹。
-5. **保存**：Ctrl+S 保存资源。
-6. **清理**：点击"清理编辑网格"。
+### 3.3 波次与路径编辑
 
-### 4.2 运行测试
-1. 编辑完成后清理网格。
-2. 确保 `GameMain` 和 `GridRenderer` 配置正确。
-3. 点击 Play，运行时网格会根据 `LevelConfig` 生成。
+网页编辑器已经支持：
 
-## 5. 扩展性设计
+1. 波次列表增删改
+2. 波次的时间、敌人类型、数量、间隔配置
+3. 每个波次单独绑定路径
+4. 手动路径绘制
+5. 自动寻路填充
+6. 路径节点等待时间编辑
 
-### 5.1 笔刷策略模式
-未来可扩展多种笔刷类型：
-```csharp
-public interface IBrushStrategy {
-    void Paint(TileAuthoring tile);
-}
+因此，波次和路径编辑是 Unity 版目标能力中的核心模块，不是附属功能。
 
-public class TypeBrush : IBrushStrategy {
-    public TileType targetType;
-    public void Paint(TileAuthoring tile) {
-        tile.tileType = targetType;
-    }
-}
+### 3.4 模板编辑
 
-public class HeightBrush : IBrushStrategy {
-    public int targetHeight;
-    public void Paint(TileAuthoring tile) {
-        tile.heightLevel = targetHeight;
-    }
-}
-```
+网页编辑器已经支持：
 
-### 5.2 快捷键系统
-```csharp
-// 数字键切换笔刷类型
-if (e.type == EventType.KeyDown) {
-    switch (e.keyCode) {
-        case KeyCode.Alpha1: _brushType = TileType.Ground; break;
-        case KeyCode.Alpha2: _brushType = TileType.HighGround; break;
-        case KeyCode.Alpha3: _brushType = TileType.Forbidden; break;
-    }
-}
-```
+1. 关卡内敌人模板编辑
+2. 关卡内干员模板编辑
+3. 基础战斗参数编辑
+4. 职业 / 移动类型 / 部署限制等参数编辑
 
-### 5.3 批量操作
-- **矩形填充**：拖动选区批量修改。
-- **填充工具**：点击封闭区域，自动填充。
-- **随机笔刷**：随机分布多种类型。
+这意味着 Unity 版也要允许在关卡上下文中直接维护这些模板，而不是强依赖外部静态库。
 
-## 6. 注意事项
+### 3.5 JSON 调试能力
 
-### 6.1 性能优化
-- **对象池**：编辑网格可使用对象池避免频繁创建销毁。
-- **延迟更新**：`OnValidate` 中避免重复调用 `SetDirty`，使用定时器合并。
-- **LOD**：大地图时，远处格子使用简化显示。
+网页编辑器已经支持直接查看与编辑 JSON。  
+这项能力的价值不是“给普通用户操作”，而是：
 
-### 6.2 数据安全
-- **Undo 支持**：所有修改必须使用 `Undo.RecordObject`，支持撤销。
-- **自动保存**：定时提醒用户保存，避免数据丢失。
-- **版本控制**：`LevelConfig` 是纯文本资源，方便 Git 管理。
+1. 用于快速调试
+2. 用于应急修复
+3. 用于导入导出与跨工具互通
 
-### 6.3 团队协作
-- **锁定机制**：编辑模式下锁定 Config，防止多人同时编辑。
-- **预览模式**：只读模式下可查看但不能修改。
-- **差异对比**：集成 Git Diff 可视化工具。
+因此 Unity 版也应保留一个原始数据调试入口。
 
-## 7. 故障排查
+### 3.6 保存、加载、导入、导出
 
-### Q1: 修改后保存不生效
-**A**: 检查是否调用了 `EditorUtility.SetDirty(config)`。
+网页编辑器已经支持：
 
-### Q2: 运行时格子和编辑器不一致
-**A**: 
-1. 确认保存了 LevelConfig（Ctrl+S）。
-2. 检查 `GridModel.LoadFromConfig` 是否正确读取默认类型。
+1. 新建关卡
+2. 保存当前关卡
+3. 另存为
+4. 本地列表管理
+5. JSON 文件导入导出
 
-### Q3: 笔刷不响应
-**A**: 
-1. 确认勾选了"启用笔刷"。
-2. 检查格子是否有 Collider 组件（Raycast 需要）。
-3. 查看 Console 是否有错误。
+Unity 版不一定沿用完全相同的交互形态，但这些工作流能力必须被覆盖。
 
-## 8. 开发规范总结
+### 3.7 校验与测试入口
 
-| 规范项 | 要求 |
-|--------|------|
-| **命名空间** | 编辑器代码不需要命名空间或使用 `ArknightsLite.Editor` |
-| **文件位置** | 必须放在 `Assets/Scripts/Editor/` 文件夹 |
-| **宏保护** | 使用 `#if UNITY_EDITOR` 包裹 |
-| **依赖注入** | 通过 Inspector 拖入，不使用 FindObjectOfType |
-| **防腐层** | 编辑器代码不得引用运行时 View 层（GridRenderer 等） |
-| **数据回写** | 必须调用 `SetDirty`，支持 `Undo` |
+网页端之所以有试玩相关能力，本质上是为了缩短“改数据 -> 验证结果”的回路。  
+在 Unity 里，这项能力应转化为：
+
+1. 编辑期校验
+2. 清晰的错误提示
+3. 便捷的测试入口
+4. 直接进入 `Play` 的关卡测试流程
+
+这里的重点是**验证与测试效率**，不是复刻独立试玩大厅。
+
+---
+
+## 4. 当前 Unity 编辑器现状
+
+当前 Unity 项目中，关卡编辑器已经有了一个早期版本，但距离目标状态还差很远。
+
+### 4.1 当前已经具备的能力
+
+从当前工程代码看，已经具备的能力主要集中在基础网格编辑：
+
+1. `Assets/Scripts/Editor/LevelEditorWindow.cs`
+   - 提供单窗口编辑入口
+   - 支持进入 / 退出编辑模式
+   - 支持简单笔刷绘制
+   - 支持创建配置、构建场景、从场景加载
+2. `Assets/Scripts/Runtime/EditorTools/TileAuthoring.cs`
+   - 作为场景中的格子编辑桥接组件
+3. `Assets/Scripts/Config/LevelConfig.cs`
+   - 保存地图尺寸、默认格子、特殊格子、起点、终点等基础数据
+
+这说明当前版本更像一个“网格编辑工具”，而不是“完整关卡编辑器”。
+
+### 4.2 与目标功能的差距
+
+当前 Unity 编辑器尚未覆盖网页编辑器中更完整的关卡生产能力，至少缺少：
+
+1. 传送门数据模型与配置界面
+2. 波次编辑
+3. 路径编辑
+4. 自动寻路填充
+5. 关卡内敌人模板编辑
+6. 关卡内干员模板编辑
+7. JSON 调试入口
+8. 系统化的校验流程
+9. 清晰的测试入口
+
+也就是说，当前工程的“编辑器”仍停留在目标系统的最早期切片。
+
+### 4.3 当前结构上的主要问题
+
+#### 问题 1：`LevelEditorWindow` 职责过重
+
+当前 [LevelEditorWindow.cs](d:\Program Files\MyProject\TDUandU\Assets\Scripts\Editor\LevelEditorWindow.cs) 同时承担了：
+
+1. 窗口 UI
+2. 编辑状态管理
+3. 网格生成与清理
+4. SceneView 输入处理
+5. 笔刷逻辑
+6. 创建关卡资源
+7. 构建场景
+8. 从场景反向加载配置
+
+这已经是典型的单点膨胀，继续加“波次、路径、传送门、模板”等功能，只会让窗口变成更大的 God Object。
+
+#### 问题 2：编辑器逻辑与场景对象强耦合
+
+当前编辑流程依赖：
+
+1. 动态生成 `Cube`
+2. 给每个格子挂 `TileAuthoring`
+3. 通过 `Physics.Raycast` 命中场景物体来编辑
+
+这套方式在地图绘制阶段还可接受，但如果继续叠加路径节点、传送门关系、波次可视化、模板引用等复杂逻辑，维护成本会快速上升。
+
+#### 问题 3：数据模型仍然只覆盖基础网格
+
+当前 [LevelConfig.cs](d:\Program Files\MyProject\TDUandU\Assets\Scripts\Config\LevelConfig.cs) 仍主要围绕：
+
+1. `mapWidth`
+2. `mapDepth`
+3. `defaultTileType`
+4. `goalPoint`
+5. `spawnPoints`
+6. `specialTiles`
+
+它还不是网页编辑器那种“统一关卡定义”，因此无法自然承接：
+
+1. 传送门
+2. 波次
+3. 路径
+4. 敌人模板
+5. 干员模板
+6. JSON 直达调试
+
+#### 问题 4：存在不健康的跨层访问
+
+当前 [LevelEditorWindow.cs](d:\Program Files\MyProject\TDUandU\Assets\Scripts\Editor\LevelEditorWindow.cs) 在 `BuildScene()` 和 `LoadFromScene()` 中使用了**反射**去读写 `GameMain` 与 `GridRenderer` 的私有字段。
+
+这说明当前编辑器与运行时之间缺少清晰的配置接口，后续如果继续依赖这种方式，结构会越来越脆。
+
+#### 问题 5：Editor 与 Runtime 的边界不干净
+
+当前 [TileAuthoring.cs](d:\Program Files\MyProject\TDUandU\Assets\Scripts\Runtime\EditorTools\TileAuthoring.cs) 虽然通过 `#if UNITY_EDITOR` 做了保护，但它仍放在 `Runtime/EditorTools` 中，说明：
+
+1. 编辑器能力需要借用运行时目录承载
+2. 当前结构没有形成清晰的编辑器模块边界
+
+这也是后续重构必须解决的问题。
+
+#### 问题 6：现有数据实现已经有重复与补丁式痕迹
+
+当前 [LevelConfig.cs](d:\Program Files\MyProject\TDUandU\Assets\Scripts\Config\LevelConfig.cs) 的 `GetTileData()` 中，对起点 / 终点的特殊处理出现了重复代码块。  
+这类迹象说明当前实现已经开始出现“在原结构上不断打补丁”的问题，不适合继续直接叠功能。
+
+---
+
+## 5. Unity 版关卡编辑器的重构目标
+
+### 5.1 重构目标
+
+重构后的 Unity 关卡编辑器应达到以下状态：
+
+1. 能覆盖网页编辑器的核心功能
+2. 能以统一关卡数据驱动所有编辑模块
+3. 能把编辑器壳层、地图编辑、波次路径、模板配置、校验、测试入口拆开
+4. 能在后续继续扩功能，而不是每次都改 `LevelEditorWindow`
+
+### 5.2 设计原则
+
+后续重构应遵守以下原则：
+
+1. **单一关卡资产是核心**
+   - 所有编辑面板都围绕同一份关卡数据工作。
+2. **编辑器只负责生产与校验**
+   - 不承担完整正式运行逻辑。
+3. **窗口只做壳层与流程组织**
+   - 不吞掉所有业务逻辑。
+4. **模块之间通过数据和服务交互**
+   - 避免面板之间直接相互操作。
+5. **优先简洁可维护**
+   - 不为了“看起来完整”而提前做过多外围系统。
+
+### 5.3 目标模块结构
+
+建议将编辑器拆成以下模块：
+
+#### 1. 关卡数据层
+
+职责：
+
+1. 统一承载地图、起终点、传送门、波次、路径、敌人模板、干员模板
+2. 提供序列化、反序列化、导入、导出能力
+3. 成为所有编辑模块唯一可信的数据源
+
+#### 2. 编辑器壳层
+
+职责：
+
+1. 打开与关闭编辑器
+2. 切换主 Tab
+3. 维护当前编辑会话
+4. 调度保存、校验、测试入口
+
+壳层不应再直接管理复杂编辑细节。
+
+#### 3. 地图编辑模块
+
+职责：
+
+1. 地图尺寸调整
+2. 格子绘制
+3. 起点 / 终点设置
+4. 传送门入口 / 出口放置
+5. 地图可视反馈
+
+#### 4. 传送门配置模块
+
+职责：
+
+1. 维护入口出口关系
+2. 编辑延迟、分组、标识信息
+3. 对地图上的入口出口做关联反馈
+
+#### 5. 波次与路径模块
+
+职责：
+
+1. 波次列表编辑
+2. 敌人引用配置
+3. 手动路径绘制
+4. 自动寻路填充
+5. 路径节点等待时间编辑
+
+#### 6. 模板配置模块
+
+职责：
+
+1. 关卡内敌人模板编辑
+2. 关卡内干员模板编辑
+3. 模板引用校验
+
+#### 7. JSON 调试模块
+
+职责：
+
+1. 直接查看原始关卡数据
+2. 支持导入 / 导出
+3. 提供高级调试入口
+
+#### 8. 校验与测试入口模块
+
+职责：
+
+1. 执行关卡结构校验
+2. 给出阻断性错误提示
+3. 选择当前测试目标
+4. 在 Unity 中直接进入 `Play`
+
+这里不需要一个网页式“试玩大厅”，只需要一个**清晰、便捷的测试入口**。
+
+---
+
+## 6. 我们接下来真正需要做什么
+
+这一部分只回答“下一步应该做哪些事”，避免继续停留在概念层。
+
+### 6.1 第一步：先统一关卡数据模型
+
+这是最优先的前置条件。  
+在没有统一关卡数据之前，波次、路径、模板、JSON、校验都无法自然挂上去。
+
+这一阶段要完成：
+
+1. 决定继续扩展 `LevelConfig`，还是引入新的关卡根数据资产
+2. 定义地图、传送门、波次、路径、敌人模板、干员模板的数据结构
+3. 确定导入导出格式与字段命名
+
+### 6.2 第二步：把 `LevelEditorWindow` 降级为壳层
+
+当前最大的结构风险就是窗口吞掉了太多职责。  
+因此必须先拆，再继续加功能。
+
+这一阶段要完成：
+
+1. 把窗口 UI 与编辑逻辑分离
+2. 把场景构建 / 场景加载提取成独立服务
+3. 把地图编辑交互提取成独立控制器
+4. 让窗口只负责组织流程，不直接处理所有细节
+
+### 6.3 第三步：补齐地图语义能力
+
+地图不是简单 Tile 涂色，它还要表达关卡语义。
+
+这一阶段要完成：
+
+1. 起点 / 终点的稳定配置方式
+2. 传送门入口 / 出口的可视化与配置
+3. 更清晰的地图反馈与选择逻辑
+
+### 6.4 第四步：补齐波次与路径编辑
+
+这是从“地图编辑器”升级为“关卡编辑器”的关键步骤。
+
+这一阶段要完成：
+
+1. 波次列表编辑
+2. 波次与敌人模板引用
+3. 路径绘制
+4. 自动寻路
+5. 节点等待时间
+
+### 6.5 第五步：补齐模板配置与 JSON 调试
+
+这一阶段要完成：
+
+1. 敌人模板编辑
+2. 干员模板编辑
+3. JSON 查看 / 导入 / 导出
+4. 原始数据与界面数据双向同步
+
+### 6.6 第六步：补上校验与测试入口
+
+这是编辑器可用性的关键，不是附属优化。
+
+这一阶段要完成：
+
+1. 地图合法性校验
+2. 波次引用校验
+3. 路径合法性校验
+4. 传送门绑定校验
+5. 一键进入 `Play` 测试当前关卡
+
+### 6.7 实施顺序建议
+
+建议严格按这个顺序推进：
+
+1. 数据模型
+2. 编辑器壳层拆分
+3. 地图语义补齐
+4. 波次与路径
+5. 模板与 JSON
+6. 校验与测试入口
+
+原因很简单：
+
+1. 如果先加功能，不先拆结构，编辑器会继续恶化
+2. 如果不先统一数据，后面每个模块都只能靠补丁拼接
+3. 如果没有校验与测试入口，编辑效率无法形成闭环
+
+---
+
+## 7. 第一阶段交付目标
+
+如果以“先做一个真正可持续扩展的 Unity 关卡编辑器”为目标，第一阶段最合理的交付标准应该是：
+
+1. 编辑器架构完成拆分，`LevelEditorWindow` 不再是 God Object
+2. 统一关卡数据可承载地图、传送门、波次、路径、模板
+3. 地图、波次、路径三个核心编辑能力已经可用
+4. JSON 导入导出可用
+5. 基础校验可用
+6. 可以直接在 Unity 中对当前关卡进入 `Play` 测试
+
+达到这一步后，编辑器才算真正进入“可持续演进”状态。
+
+---
+
+## 8. 结论
+
+本次工作的真正目标，不是讨论网页端某个附属功能在 Unity 中是否照搬，而是先把方向收束清楚：
+
+1. 网页编辑器提供的是**目标功能基线**
+2. 当前 Unity 编辑器只是一个**早期网格编辑工具**
+3. 后续工作必须同时覆盖**功能补齐**与**架构重构**
+4. 重点是把编辑器做成一个**解耦、模块化、简洁**的关卡生产工具
+
+因此，后续 Unity 关卡编辑器的正确方向应当是：
+
+> 先统一关卡数据，再拆编辑器结构，再逐步补齐地图语义、波次路径、模板配置、JSON 调试、校验与测试入口，最终形成一套可持续扩展的关卡编辑器。

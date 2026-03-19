@@ -15,6 +15,7 @@ public class TileAuthoring : MonoBehaviour {
     [Header("坐标信息（只读）")]
     [SerializeField] private int _x;
     [SerializeField] private int _z;
+    [SerializeField] private float _cellSize = 1f;
     
     [Header("格子配置")]
     [Tooltip("格子类型")]
@@ -48,10 +49,24 @@ public class TileAuthoring : MonoBehaviour {
         _z = z;
         config = levelConfig;
         visualConfig = gridVisualConfig;
+        _cellSize = levelConfig != null ? levelConfig.cellSize : 1f;
         
         // 从配置加载初始数据
         LoadFromConfig();
         UpdateVisual();
+    }
+
+    /// <summary>
+    /// 以工作区白模数据初始化格子
+    /// </summary>
+    public void Initialize(int x, int z, TileData initialData, float cellSize, GridVisualConfig gridVisualConfig) {
+        _x = x;
+        _z = z;
+        config = null;
+        visualConfig = gridVisualConfig;
+        _cellSize = cellSize;
+
+        ApplyTileData(initialData, cellSize);
     }
     
     /// <summary>
@@ -87,8 +102,28 @@ public class TileAuthoring : MonoBehaviour {
     /// 手动触发同步（供 Editor 调用）
     /// </summary>
     public void ForceSync() {
-        if (config == null) return;
-        SyncToConfig();
+        if (config != null) {
+            SyncToConfig();
+        }
+        UpdateVisual();
+    }
+
+    public void ApplyTileData(TileData data, float cellSize) {
+        _cellSize = cellSize;
+
+        var resolvedData = data ?? new TileData {
+            x = _x,
+            z = _z,
+            tileType = TileType.Ground,
+            heightLevel = 0,
+            walkable = true,
+            deployTag = "All"
+        };
+
+        tileType = resolvedData.tileType;
+        heightLevel = resolvedData.heightLevel;
+        walkable = resolvedData.walkable;
+        deployTag = string.IsNullOrWhiteSpace(resolvedData.deployTag) ? "All" : resolvedData.deployTag;
         UpdateVisual();
     }
     
@@ -157,12 +192,11 @@ public class TileAuthoring : MonoBehaviour {
     /// 更新位置（根据高度等级）
     /// </summary>
     private void UpdatePosition() {
-        if (config == null) return;
-        
         Vector3 pos = transform.position;
-        pos.x = _x * config.cellSize;
-        pos.y = heightLevel * config.cellSize + 0.1f; // 略微抬高避免 Z-Fighting
-        pos.z = _z * config.cellSize;
+        float resolvedCellSize = config != null ? config.cellSize : _cellSize;
+        pos.x = _x * resolvedCellSize;
+        pos.y = heightLevel * resolvedCellSize + 0.1f; // 略微抬高避免 Z-Fighting
+        pos.z = _z * resolvedCellSize;
         transform.position = pos;
     }
     
@@ -190,7 +224,9 @@ public class TileAuthoring : MonoBehaviour {
         // 根据类型自动设置通行性
         walkable = (newType != TileType.Forbidden && newType != TileType.Hole);
         
-        SyncToConfig();
+        if (config != null) {
+            SyncToConfig();
+        }
         UpdateVisual();
     }
     
@@ -201,7 +237,9 @@ public class TileAuthoring : MonoBehaviour {
         if (heightLevel == newHeight) return;
         
         heightLevel = Mathf.Clamp(newHeight, 0, 3);
-        SyncToConfig();
+        if (config != null) {
+            SyncToConfig();
+        }
         UpdateVisual();
     }
     

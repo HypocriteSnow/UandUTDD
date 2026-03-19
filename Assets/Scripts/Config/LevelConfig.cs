@@ -41,6 +41,19 @@ namespace ArknightsLite.Config {
         [Header("特殊格子配置（可选）")]
         [Tooltip("特殊格子列表（不配置则全部为默认 Ground/高度0）")]
         public List<TileData> specialTiles = new List<TileData>();
+
+        [Header("关卡扩展数据")]
+        [Tooltip("传送门配置列表")]
+        public List<PortalDefinition> portals = new List<PortalDefinition>();
+
+        [Tooltip("波次配置列表")]
+        public List<WaveDefinition> waves = new List<WaveDefinition>();
+
+        [Tooltip("关卡内敌人模板")]
+        public List<EnemyTemplateData> enemies = new List<EnemyTemplateData>();
+
+        [Tooltip("关卡内干员模板")]
+        public List<OperatorTemplateData> operators = new List<OperatorTemplateData>();
         
         
         /// <summary>
