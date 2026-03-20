@@ -15,8 +15,19 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
             Assert.AreEqual(3, workspace.Runtime.BaseHealth);
         }
 
+        [Test]
+        public void CreateNewWorkspace_SeedsDefaultSpawnAndGoalMarkers() {
+            var workspace = LevelEditorWorkspace.CreateNew("Tutorial_01");
+
+            Assert.AreEqual("spawn_01", workspace.SpawnId);
+            Assert.AreEqual(new Vector2Int(0, 0), workspace.SpawnPoint);
+            Assert.AreEqual("goal_01", workspace.GoalId);
+            Assert.AreEqual(new Vector2Int(9, 9), workspace.GoalPoint);
+        }
+
         public static void RunFromCommandLine() {
             new LevelEditorWorkspaceTests().CreateNewWorkspace_UsesLevelNameAndInitializesRuntimeParameters();
+            new LevelEditorWorkspaceTests().CreateNewWorkspace_SeedsDefaultSpawnAndGoalMarkers();
             Debug.Log("[LevelEditorTests] LevelEditorWorkspaceTests passed.");
         }
     }

@@ -11,7 +11,11 @@ using ArknightsLite.Model;
 /// </summary>
 [ExecuteInEditMode]
 public class TileAuthoring : MonoBehaviour {
-    
+    private const string SpawnMarkerVisualName = "SpawnMarkerVisual";
+    private const string GoalMarkerVisualName = "GoalMarkerVisual";
+    private static Material s_spawnMarkerVisualMaterial;
+    private static Material s_goalMarkerVisualMaterial;
+
     [Header("坐标信息（只读）")]
     [SerializeField] private int _x;
     [SerializeField] private int _z;
@@ -37,6 +41,11 @@ public class TileAuthoring : MonoBehaviour {
     
     [HideInInspector]
     public GridVisualConfig visualConfig;
+
+    [SerializeField] private bool _hasSpawnMarker;
+    [SerializeField] private string _spawnMarkerId = string.Empty;
+    [SerializeField] private bool _hasGoalMarker;
+    [SerializeField] private string _goalMarkerId = string.Empty;
     
     
     // ==================== 初始化 ====================
@@ -50,6 +59,7 @@ public class TileAuthoring : MonoBehaviour {
         config = levelConfig;
         visualConfig = gridVisualConfig;
         _cellSize = levelConfig != null ? levelConfig.cellSize : 1f;
+        ApplySemanticMarkers(false, string.Empty, false, string.Empty);
         
         // 从配置加载初始数据
         LoadFromConfig();
@@ -66,6 +76,7 @@ public class TileAuthoring : MonoBehaviour {
         visualConfig = gridVisualConfig;
         _cellSize = cellSize;
 
+        ApplySemanticMarkers(false, string.Empty, false, string.Empty);
         ApplyTileData(initialData, cellSize);
     }
     
@@ -126,6 +137,14 @@ public class TileAuthoring : MonoBehaviour {
         deployTag = string.IsNullOrWhiteSpace(resolvedData.deployTag) ? "All" : resolvedData.deployTag;
         UpdateVisual();
     }
+
+    public void ApplySemanticMarkers(bool hasSpawnMarker, string spawnMarkerId, bool hasGoalMarker, string goalMarkerId) {
+        _hasSpawnMarker = hasSpawnMarker;
+        _spawnMarkerId = hasSpawnMarker ? spawnMarkerId ?? string.Empty : string.Empty;
+        _hasGoalMarker = hasGoalMarker;
+        _goalMarkerId = hasGoalMarker ? goalMarkerId ?? string.Empty : string.Empty;
+        UpdateVisual();
+    }
     
     /// <summary>
     /// 同步数据到配置文件
@@ -155,6 +174,7 @@ public class TileAuthoring : MonoBehaviour {
     public void UpdateVisual() {
         UpdateMaterial();
         UpdatePosition();
+        UpdateSemanticMarkerVisuals();
     }
     
     /// <summary>
@@ -169,13 +189,11 @@ public class TileAuthoring : MonoBehaviour {
         // 优先级：起点/终点 > 格子类型
         Material targetMaterial = null;
         
-        if (config != null) {
-            if (config.IsSpawnPoint(_x, _z) && visualConfig.spawnPointMaterial != null) {
-                targetMaterial = visualConfig.spawnPointMaterial;
-            }
-            else if (config.IsGoalPoint(_x, _z) && visualConfig.goalPointMaterial != null) {
-                targetMaterial = visualConfig.goalPointMaterial;
-            }
+        if (HasSpawnMarker && visualConfig.spawnPointMaterial != null) {
+            targetMaterial = visualConfig.spawnPointMaterial;
+        }
+        else if (HasGoalMarker && visualConfig.goalPointMaterial != null) {
+            targetMaterial = visualConfig.goalPointMaterial;
         }
         
         // 如果不是特殊点，使用类型材质
@@ -206,12 +224,142 @@ public class TileAuthoring : MonoBehaviour {
     /// <summary>
     /// 获取 X 坐标
     /// </summary>
+    private void UpdateSemanticMarkerVisuals() {
+        float resolvedCellSize = config != null ? config.cellSize : _cellSize;
+        EnsureMarkerVisual(
+            SpawnMarkerVisualName,
+            HasSpawnMarker,
+            PrimitiveType.Sphere,
+            new Vector3(resolvedCellSize * 0.28f, resolvedCellSize * 0.28f, resolvedCellSize * 0.28f),
+            new Vector3(0f, resolvedCellSize * 0.42f, 0f),
+            GetSpawnMarkerVisualMaterial()
+        );
+        EnsureMarkerVisual(
+            GoalMarkerVisualName,
+            HasGoalMarker,
+            PrimitiveType.Cube,
+            new Vector3(resolvedCellSize * 0.48f, resolvedCellSize * 0.14f, resolvedCellSize * 0.48f),
+            new Vector3(0f, resolvedCellSize * 0.22f, 0f),
+            GetGoalMarkerVisualMaterial()
+        );
+    }
+
+    private void EnsureMarkerVisual(string markerName, bool shouldExist, PrimitiveType primitiveType, Vector3 worldScale, Vector3 worldOffset, Material material) {
+        Transform marker = transform.Find(markerName);
+        if (!shouldExist) {
+            if (marker != null) {
+                DestroyImmediate(marker.gameObject);
+            }
+
+            return;
+        }
+
+        if (marker == null) {
+            var markerObject = GameObject.CreatePrimitive(primitiveType);
+            markerObject.name = markerName;
+            markerObject.transform.SetParent(transform, false);
+            marker = markerObject.transform;
+
+            var collider = markerObject.GetComponent<Collider>();
+            if (collider != null) {
+                DestroyImmediate(collider);
+            }
+        }
+
+        marker.localPosition = ToLocalOffset(worldOffset);
+        marker.localRotation = Quaternion.identity;
+        marker.localScale = ToLocalScale(worldScale);
+
+        var renderer = marker.GetComponent<MeshRenderer>();
+        if (renderer != null && material != null) {
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+        }
+    }
+
+    private Vector3 ToLocalOffset(Vector3 worldOffset) {
+        Vector3 parentScale = transform.localScale;
+        return new Vector3(
+            SafeDivide(worldOffset.x, parentScale.x),
+            SafeDivide(worldOffset.y, parentScale.y),
+            SafeDivide(worldOffset.z, parentScale.z)
+        );
+    }
+
+    private Vector3 ToLocalScale(Vector3 worldScale) {
+        Vector3 parentScale = transform.localScale;
+        return new Vector3(
+            SafeDivide(worldScale.x, parentScale.x),
+            SafeDivide(worldScale.y, parentScale.y),
+            SafeDivide(worldScale.z, parentScale.z)
+        );
+    }
+
+    private static float SafeDivide(float value, float divisor) {
+        return Mathf.Approximately(divisor, 0f) ? value : value / divisor;
+    }
+
+    private static Material GetSpawnMarkerVisualMaterial() {
+        if (s_spawnMarkerVisualMaterial == null) {
+            s_spawnMarkerVisualMaterial = CreateMarkerVisualMaterial(new Color(0.95f, 0.25f, 0.25f));
+        }
+
+        return s_spawnMarkerVisualMaterial;
+    }
+
+    private static Material GetGoalMarkerVisualMaterial() {
+        if (s_goalMarkerVisualMaterial == null) {
+            s_goalMarkerVisualMaterial = CreateMarkerVisualMaterial(new Color(0.2f, 0.55f, 1f));
+        }
+
+        return s_goalMarkerVisualMaterial;
+    }
+
+    private static Material CreateMarkerVisualMaterial(Color color) {
+        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+        if (shader == null) {
+            shader = Shader.Find("Standard");
+        }
+
+        if (shader == null) {
+            shader = Shader.Find("Sprites/Default");
+        }
+
+        var material = new Material(shader) {
+            hideFlags = HideFlags.HideAndDontSave
+        };
+
+        if (material.HasProperty("_BaseColor")) {
+            material.SetColor("_BaseColor", color);
+        }
+
+        if (material.HasProperty("_Color")) {
+            material.color = color;
+        }
+
+        if (material.HasProperty("_EmissionColor")) {
+            material.EnableKeyword("_EMISSION");
+            material.SetColor("_EmissionColor", color * 0.5f);
+        }
+
+        return material;
+    }
+
     public int X => _x;
     
     /// <summary>
     /// 获取 Z 坐标
     /// </summary>
     public int Z => _z;
+
+    public bool HasSpawnMarker => _hasSpawnMarker || (config != null && config.IsSpawnPoint(_x, _z));
+
+    public bool HasGoalMarker => _hasGoalMarker || (config != null && config.IsGoalPoint(_x, _z));
+
+    public string SpawnMarkerId => string.IsNullOrWhiteSpace(_spawnMarkerId) ? "spawn_01" : _spawnMarkerId;
+
+    public string GoalMarkerId => string.IsNullOrWhiteSpace(_goalMarkerId) ? "goal_01" : _goalMarkerId;
     
     /// <summary>
     /// 设置格子类型（用于笔刷工具）
@@ -246,6 +394,25 @@ public class TileAuthoring : MonoBehaviour {
     
     // ==================== 调试信息 ====================
     
+    private void OnDrawGizmos() {
+        if (!HasSpawnMarker && !HasGoalMarker) {
+            return;
+        }
+
+        Color color = HasSpawnMarker && HasGoalMarker
+            ? Color.magenta
+            : (HasSpawnMarker ? new Color(0.9f, 0.2f, 0.2f) : new Color(0.2f, 0.5f, 1f));
+
+        Gizmos.color = color;
+        Gizmos.DrawWireCube(transform.position + Vector3.up * 0.2f, new Vector3(_cellSize * 0.6f, 0.3f, _cellSize * 0.6f));
+
+        #if UNITY_EDITOR
+        var style = new GUIStyle(EditorStyles.boldLabel);
+        style.normal.textColor = color;
+        Handles.Label(transform.position + Vector3.up * 0.6f, GetSemanticLabel(), style);
+        #endif
+    }
+
     private void OnDrawGizmosSelected() {
         // 显示坐标信息
         Gizmos.color = Color.yellow;
@@ -254,6 +421,22 @@ public class TileAuthoring : MonoBehaviour {
         #if UNITY_EDITOR
         UnityEditor.Handles.Label(labelPos, $"({_x}, {_z})\n{tileType}");
         #endif
+    }
+
+    private string GetSemanticLabel() {
+        if (HasSpawnMarker && HasGoalMarker) {
+            return $"{SpawnMarkerId} / {GoalMarkerId}";
+        }
+
+        if (HasSpawnMarker) {
+            return SpawnMarkerId;
+        }
+
+        if (HasGoalMarker) {
+            return GoalMarkerId;
+        }
+
+        return string.Empty;
     }
 }
 #endif

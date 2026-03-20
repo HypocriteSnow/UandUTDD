@@ -7,6 +7,7 @@ using ArknightsLite.Config;
 using ArknightsLite.Model;
 using ArknightsLite.Editor.LevelEditor.Core;
 using ArknightsLite.Editor.LevelEditor.Map;
+using ArknightsLite.Editor.LevelEditor.Panels;
 using ArknightsLite.Editor.LevelEditor.Services;
 
 /// <summary>
@@ -14,6 +15,11 @@ using ArknightsLite.Editor.LevelEditor.Services;
 /// 职责：生成可编辑的网格、提供笔刷工具、管理编辑会话
 /// </summary>
 public class LevelEditorWindow : EditorWindow {
+    private enum WorkspaceSceneTool {
+        Terrain,
+        Spawn,
+        Goal
+    }
     
     // ==================== 配置引用 ====================
     
@@ -27,6 +33,8 @@ public class LevelEditorWindow : EditorWindow {
     private WhiteboxRoot _whiteboxRoot;
     private WorkspaceMapController _workspaceMapController;
     private bool _isEditMode = false;
+    private int _workspaceToolTab = 0;
+    private int _selectedWaveIndex = -1;
     
     
     // ==================== 笔刷设置 ====================
@@ -35,6 +43,7 @@ public class LevelEditorWindow : EditorWindow {
     private TileType _brushType = TileType.Ground;
     private int _brushHeight = 0;
     private bool _isPainting = false;
+    private WorkspaceSceneTool _workspaceSceneTool = WorkspaceSceneTool.Terrain;
     
     
     // ==================== 关卡管理 ====================
@@ -69,6 +78,9 @@ public class LevelEditorWindow : EditorWindow {
         
         DrawLevelManagementSection();
         EditorGUILayout.Space(10);
+
+        DrawRuntimeSection();
+        EditorGUILayout.Space(10);
         
         DrawConfigSection();
         EditorGUILayout.Space(10);
@@ -77,6 +89,9 @@ public class LevelEditorWindow : EditorWindow {
         EditorGUILayout.Space(10);
         
         DrawBrushSection();
+        EditorGUILayout.Space(10);
+
+        DrawWorkspaceModulesSection();
         EditorGUILayout.Space(10);
         
         DrawInfoSection();
@@ -107,6 +122,9 @@ public class LevelEditorWindow : EditorWindow {
         GUI.enabled = hasWorkspace;
         if (GUILayout.Button("生成/刷新白模", GUILayout.Height(30))) {
             EditorApplication.delayCall += GenerateWhiteboxFromWorkspace;
+        }
+        if (GUILayout.Button("导出 LevelConfig", GUILayout.Height(30))) {
+            EditorApplication.delayCall += ExportCurrentWorkspace;
         }
         GUI.enabled = true;
 
@@ -145,9 +163,45 @@ public class LevelEditorWindow : EditorWindow {
         _visualConfig = (GridVisualConfig)EditorGUILayout.ObjectField("Visual Config", _visualConfig, typeof(GridVisualConfig), false);
         
         if (_session.CurrentWorkspace != null) {
+            EditorGUILayout.LabelField($"Spawn: {_session.CurrentWorkspace.SpawnId} @ {_session.CurrentWorkspace.GetResolvedSpawnPoint()}");
+            EditorGUILayout.LabelField($"Goal: {_session.CurrentWorkspace.GoalId} @ {_session.CurrentWorkspace.GetResolvedGoalPoint()}");
             EditorGUILayout.HelpBox("当前以 Workspace 驱动白模；这里保留旧 LevelConfig/GridVisualConfig 的兼容入口。", MessageType.Info);
         } else if (_config == null || _visualConfig == null) {
             EditorGUILayout.HelpBox("如需走旧流程，请拖入 LevelConfig 和 GridVisualConfig。", MessageType.Warning);
+        }
+    }
+
+    /// <summary>
+    /// 运行时参数区域
+    /// </summary>
+    private void DrawRuntimeSection() {
+        LevelRuntimePanel.Draw(_session.CurrentWorkspace);
+    }
+
+    /// <summary>
+    /// Workspace 模块区域
+    /// </summary>
+    private void DrawWorkspaceModulesSection() {
+        if (_session.CurrentWorkspace == null) {
+            return;
+        }
+
+        EditorGUILayout.LabelField("工作区模块", EditorStyles.boldLabel);
+        _workspaceToolTab = GUILayout.Toolbar(_workspaceToolTab, new[] { "地图", "传送门", "路径", "波次" });
+
+        switch (_workspaceToolTab) {
+            case 0:
+                EditorGUILayout.HelpBox("地图编辑使用上方白模与笔刷工具。", MessageType.Info);
+                break;
+            case 1:
+                PortalEditorPanel.Draw(_session.CurrentWorkspace);
+                break;
+            case 2:
+                PathEditorPanel.Draw(_session.CurrentWorkspace, _selectedWaveIndex);
+                break;
+            case 3:
+                _selectedWaveIndex = WaveEditorPanel.Draw(_session.CurrentWorkspace, _selectedWaveIndex);
+                break;
         }
     }
     
@@ -191,6 +245,12 @@ public class LevelEditorWindow : EditorWindow {
         _brushEnabled = EditorGUILayout.Toggle("启用笔刷", _brushEnabled);
         
         if (_brushEnabled) {
+            _workspaceSceneTool = (WorkspaceSceneTool)GUILayout.Toolbar(
+                (int)_workspaceSceneTool,
+                new[] { "Terrain", "Spawn", "Goal" }
+            );
+
+            DrawWorkspaceToolHelp();
             EditorGUILayout.HelpBox("笔刷模式：在 Scene 视图中按住鼠标左键涂抹\n快捷键：1-Ground 2-HighGround 3-Forbidden 4-Hole", MessageType.Info);
             
             _brushType = (TileType)EditorGUILayout.EnumPopup("笔刷类型", _brushType);
@@ -213,6 +273,31 @@ public class LevelEditorWindow : EditorWindow {
     /// <summary>
     /// 信息区域
     /// </summary>
+    private void DrawWorkspaceToolHelp() {
+        if (_session.CurrentWorkspace == null) {
+            return;
+        }
+
+        switch (_workspaceSceneTool) {
+            case WorkspaceSceneTool.Spawn:
+                EditorGUILayout.HelpBox($"Click a tile in SceneView to move {_session.CurrentWorkspace.SpawnId}. Hotkey: 5", MessageType.Info);
+                EditorGUILayout.LabelField($"Spawn Tile: {_session.CurrentWorkspace.GetResolvedSpawnPoint()}");
+                break;
+
+            case WorkspaceSceneTool.Goal:
+                EditorGUILayout.HelpBox($"Click a tile in SceneView to move {_session.CurrentWorkspace.GoalId}. Hotkey: 6", MessageType.Info);
+                EditorGUILayout.LabelField($"Goal Tile: {_session.CurrentWorkspace.GetResolvedGoalPoint()}");
+                break;
+
+            default:
+                if (_session.CurrentWorkspace != null) {
+                    EditorGUILayout.LabelField($"Spawn Tile: {_session.CurrentWorkspace.GetResolvedSpawnPoint()}");
+                    EditorGUILayout.LabelField($"Goal Tile: {_session.CurrentWorkspace.GetResolvedGoalPoint()}");
+                }
+                break;
+        }
+    }
+
     private void DrawInfoSection() {
         EditorGUILayout.LabelField("统计信息", EditorStyles.boldLabel);
         
@@ -370,6 +455,7 @@ public class LevelEditorWindow : EditorWindow {
             switch (e.keyCode) {
                 case KeyCode.Alpha1:
                 case KeyCode.Keypad1:
+                    _workspaceSceneTool = WorkspaceSceneTool.Terrain;
                     _brushType = TileType.Ground;
                     Repaint();
                     e.Use();
@@ -377,6 +463,7 @@ public class LevelEditorWindow : EditorWindow {
                     
                 case KeyCode.Alpha2:
                 case KeyCode.Keypad2:
+                    _workspaceSceneTool = WorkspaceSceneTool.Terrain;
                     _brushType = TileType.HighGround;
                     Repaint();
                     e.Use();
@@ -384,6 +471,7 @@ public class LevelEditorWindow : EditorWindow {
                     
                 case KeyCode.Alpha3:
                 case KeyCode.Keypad3:
+                    _workspaceSceneTool = WorkspaceSceneTool.Terrain;
                     _brushType = TileType.Forbidden;
                     Repaint();
                     e.Use();
@@ -391,7 +479,22 @@ public class LevelEditorWindow : EditorWindow {
                     
                 case KeyCode.Alpha4:
                 case KeyCode.Keypad4:
+                    _workspaceSceneTool = WorkspaceSceneTool.Terrain;
                     _brushType = TileType.Hole;
+                    Repaint();
+                    e.Use();
+                    break;
+
+                case KeyCode.Alpha5:
+                case KeyCode.Keypad5:
+                    _workspaceSceneTool = WorkspaceSceneTool.Spawn;
+                    Repaint();
+                    e.Use();
+                    break;
+
+                case KeyCode.Alpha6:
+                case KeyCode.Keypad6:
+                    _workspaceSceneTool = WorkspaceSceneTool.Goal;
                     Repaint();
                     e.Use();
                     break;
@@ -403,6 +506,17 @@ public class LevelEditorWindow : EditorWindow {
     /// 处理笔刷涂抹
     /// </summary>
     private void HandleBrushPaint(Event e) {
+        if (_workspaceSceneTool != WorkspaceSceneTool.Terrain) {
+            if (e.type == EventType.MouseDown && e.button == 0) {
+                PaintTile(e);
+            }
+
+            if (e.type == EventType.MouseUp && e.button == 0) {
+                _isPainting = false;
+            }
+
+            return;
+        }
         // 鼠标按下或拖动时涂抹
         if (e.type == EventType.MouseDown && e.button == 0) {
             _isPainting = true;
@@ -429,8 +543,22 @@ public class LevelEditorWindow : EditorWindow {
             if (authoring != null) {
                 if (_session.CurrentWorkspace != null) {
                     _workspaceMapController = _workspaceMapController ?? new WorkspaceMapController(_session.CurrentWorkspace);
-                    Undo.RecordObject(authoring, "Paint Workspace Tile");
-                    _workspaceMapController.PaintTile(authoring.X, authoring.Z, _brushType, _brushHeight);
+                    switch (_workspaceSceneTool) {
+                        case WorkspaceSceneTool.Spawn:
+                            Undo.RecordObject(authoring, "Move Workspace Spawn");
+                            _workspaceMapController.SetSpawnPoint(authoring.X, authoring.Z);
+                            break;
+
+                        case WorkspaceSceneTool.Goal:
+                            Undo.RecordObject(authoring, "Move Workspace Goal");
+                            _workspaceMapController.SetGoalPoint(authoring.X, authoring.Z);
+                            break;
+
+                        default:
+                            Undo.RecordObject(authoring, "Paint Workspace Tile");
+                            _workspaceMapController.PaintTile(authoring.X, authoring.Z, _brushType, _brushHeight);
+                            break;
+                    }
                     e.Use();
                     return;
                 }
@@ -461,7 +589,8 @@ public class LevelEditorWindow : EditorWindow {
         style.normal.textColor = Color.white;
         
         string info = $"笔刷: {_brushType} (高度 {_brushHeight})\n按 1-4 切换类型";
-        GUILayout.BeginArea(new Rect(10, 10, 250, 60));
+        info = GetSceneToolOverlayText();
+        GUILayout.BeginArea(new Rect(10, 10, 300, 72));
         GUILayout.Box(info, style);
         GUILayout.EndArea();
         
@@ -471,6 +600,23 @@ public class LevelEditorWindow : EditorWindow {
     /// <summary>
     /// 创建纯色贴图（用于 GUI 背景）
     /// </summary>
+    private string GetSceneToolOverlayText() {
+        if (_session.CurrentWorkspace == null) {
+            return $"Tool: {_brushType}\nHotkeys: 1-4 terrain";
+        }
+
+        switch (_workspaceSceneTool) {
+            case WorkspaceSceneTool.Spawn:
+                return $"Tool: Spawn\nClick to move {_session.CurrentWorkspace.SpawnId}\nHotkey: 5";
+
+            case WorkspaceSceneTool.Goal:
+                return $"Tool: Goal\nClick to move {_session.CurrentWorkspace.GoalId}\nHotkey: 6";
+
+            default:
+                return $"Tool: Terrain / {_brushType}\nHeight: {_brushHeight}\nHotkeys: 1-4 terrain, 5 spawn, 6 goal";
+        }
+    }
+
     private Texture2D MakeTex(int width, int height, Color col) {
         Color[] pix = new Color[width * height];
         for (int i = 0; i < pix.Length; i++) {
@@ -517,6 +663,25 @@ public class LevelEditorWindow : EditorWindow {
         _isEditMode = true;
         _session.StartEditing();
         Debug.Log($"[LevelEditor] 已根据工作区生成白模: {workspace.LevelName}");
+    }
+
+    /// <summary>
+    /// 导出当前工作区为 LevelConfig
+    /// </summary>
+    private void ExportCurrentWorkspace() {
+        var workspace = _session.CurrentWorkspace;
+        if (workspace == null) {
+            EditorUtility.DisplayDialog("错误", "请先创建工作区", "确定");
+            return;
+        }
+
+        _config = LevelConfigExportService.Export(workspace);
+        _session.SetCurrentLevel(_config);
+
+        Debug.Log($"[LevelEditor] 已导出配置: {_config.name}");
+        EditorUtility.DisplayDialog("成功", $"已导出 {_config.name}", "确定");
+        Selection.activeObject = _config;
+        EditorGUIUtility.PingObject(_config);
     }
 
     /// <summary>

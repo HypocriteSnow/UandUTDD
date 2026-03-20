@@ -26,6 +26,19 @@ namespace ArknightsLite.Config {
         
         [Tooltip("默认格子类型（未在特殊格子列表中的格子使用此类型）")]
         public TileType defaultTileType = TileType.Forbidden;
+
+        [Header("关卡运行时参数")]
+        [Tooltip("初始部署点")]
+        public int initialDp = 20;
+
+        [Tooltip("基地生命值")]
+        public int baseHealth = 3;
+
+        [Tooltip("部署点恢复间隔")]
+        public float dpRecoveryInterval = 1f;
+
+        [Tooltip("单次恢复部署点")]
+        public int dpRecoveryAmount = 1;
         
         
         [Header("关卡必需配置")]

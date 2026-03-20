@@ -6,7 +6,7 @@ namespace ArknightsLite.Editor {
     
     /// <summary>
     /// TileAuthoring 的自定义 Inspector
-    /// 职责：提供更智能的编辑体验，显示特殊状态，自动联动属性
+    /// 职责：提供更清晰的格子编辑体验，显示语义状态，并智能联动属性
     /// </summary>
     [CustomEditor(typeof(TileAuthoring))]
     [CanEditMultipleObjects]
@@ -29,40 +29,41 @@ namespace ArknightsLite.Editor {
             
             TileAuthoring script = (TileAuthoring)target;
             
-            // 1. 显示坐标和特殊状态
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("基本信息", EditorStyles.boldLabel);
             
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox)) {
                 EditorGUILayout.LabelField($"坐标: ({script.X}, {script.Z})");
                 
-                // 检查是否为特殊点
                 if (script.config != null) {
                     if (script.config.IsSpawnPoint(script.X, script.Z)) {
-                        EditorGUILayout.LabelField("🚩 起点 (Spawn Point)", EditorStyles.boldLabel);
-                        EditorGUILayout.HelpBox("这是一个敌人出生点，运行时将强制为 Ground 类型且可通行。", MessageType.Info);
+                        EditorGUILayout.LabelField("起点 (Spawn Point)", EditorStyles.boldLabel);
+                        EditorGUILayout.HelpBox("这是敌人的出生点，运行时会按可通行入口处理。", MessageType.Info);
                     }
                     else if (script.config.IsGoalPoint(script.X, script.Z)) {
-                        EditorGUILayout.LabelField("🏁 终点 (Goal Point)", EditorStyles.boldLabel);
-                        EditorGUILayout.HelpBox("这是一个敌人目标点，运行时将强制为 Ground 类型且可通行。", MessageType.Info);
+                        EditorGUILayout.LabelField("终点 (Goal Point)", EditorStyles.boldLabel);
+                        EditorGUILayout.HelpBox("这是敌人的目标点，运行时会按可通行终点处理。", MessageType.Info);
                     }
                 } else {
-                    EditorGUILayout.HelpBox("当前格子由编辑器工作区/白模驱动，不直接绑定 LevelConfig。", MessageType.Info);
+                    EditorGUILayout.HelpBox("当前格子由工作区白模驱动，不直接绑定 LevelConfig。", MessageType.Info);
+                    if (script.HasSpawnMarker) {
+                        EditorGUILayout.LabelField($"Spawn Marker: {script.SpawnMarkerId}", EditorStyles.boldLabel);
+                    }
+
+                    if (script.HasGoalMarker) {
+                        EditorGUILayout.LabelField($"Goal Marker: {script.GoalMarkerId}", EditorStyles.boldLabel);
+                    }
                 }
             }
             
             EditorGUILayout.Space();
-            
-            // 2. 绘制属性（带智能联动）
             EditorGUILayout.LabelField("格子属性", EditorStyles.boldLabel);
             
-            // 绘制 TileType 并检测变化
             EditorGUI.BeginChangeCheck();
             EditorGUILayout.PropertyField(_tileTypeProp);
             if (EditorGUI.EndChangeCheck()) {
-                // 智能联动：类型改变时自动设置通行性
                 TileType newType = (TileType)_tileTypeProp.enumValueIndex;
-                bool shouldBeWalkable = (newType != TileType.Forbidden && newType != TileType.Hole);
+                bool shouldBeWalkable = newType != TileType.Forbidden && newType != TileType.Hole;
                 _walkableProp.boolValue = shouldBeWalkable;
             }
             
@@ -72,7 +73,6 @@ namespace ArknightsLite.Editor {
             
             serializedObject.ApplyModifiedProperties();
             
-            // 确保视觉更新
             if (GUI.changed) {
                 script.ForceSync();
             }

@@ -33,7 +33,7 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
                 root = new GameObject().AddComponent<WhiteboxRoot>();
             }
 
-            root.ApplyWorkspace(workspace);
+            root.ApplyLayout(workspace.LevelName, workspace.MapWidth, workspace.MapDepth, workspace.CellSize);
             RebuildTiles(root.transform, workspace, visualConfig);
             Selection.activeGameObject = root.gameObject;
             EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
@@ -61,6 +61,12 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
 
             var authoring = cube.AddComponent<TileAuthoring>();
             authoring.Initialize(x, z, workspace.GetTileOverride(x, z), workspace.CellSize, visualConfig);
+            authoring.ApplySemanticMarkers(
+                workspace.IsSpawnPoint(x, z),
+                workspace.SpawnId,
+                workspace.IsGoalPoint(x, z),
+                workspace.GoalId
+            );
         }
     }
 }

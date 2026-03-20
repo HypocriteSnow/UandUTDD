@@ -25,6 +25,28 @@ namespace ArknightsLite.Editor.LevelEditor.Map {
             RefreshTileVisual(x, z);
         }
 
+        public void SetSpawnPoint(int x, int z) {
+            if (_workspace == null) {
+                return;
+            }
+
+            Vector2Int previous = _workspace.GetResolvedSpawnPoint();
+            _workspace.SetSpawnPoint(new Vector2Int(x, z));
+            RefreshTileVisual(previous.x, previous.y);
+            RefreshTileVisual(x, z);
+        }
+
+        public void SetGoalPoint(int x, int z) {
+            if (_workspace == null) {
+                return;
+            }
+
+            Vector2Int previous = _workspace.GetResolvedGoalPoint();
+            _workspace.SetGoalPoint(new Vector2Int(x, z));
+            RefreshTileVisual(previous.x, previous.y);
+            RefreshTileVisual(x, z);
+        }
+
         private void RefreshTileVisual(int x, int z) {
             foreach (var authoring in Object.FindObjectsOfType<TileAuthoring>()) {
                 if (authoring.X != x || authoring.Z != z) {
@@ -32,6 +54,12 @@ namespace ArknightsLite.Editor.LevelEditor.Map {
                 }
 
                 authoring.ApplyTileData(_workspace.GetTileOverride(x, z), _workspace.CellSize);
+                authoring.ApplySemanticMarkers(
+                    _workspace.IsSpawnPoint(x, z),
+                    _workspace.SpawnId,
+                    _workspace.IsGoalPoint(x, z),
+                    _workspace.GoalId
+                );
                 break;
             }
         }
