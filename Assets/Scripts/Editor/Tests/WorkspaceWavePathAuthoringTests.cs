@@ -33,6 +33,17 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
         }
 
         [Test]
+        public void GetWaveSemanticOptions_ReturnEmptyWithoutExplicitMarkers() {
+            var workspace = LevelEditorWorkspace.CreateNew("Tutorial_01");
+
+            string[] spawnOptions = WaveEditorPanel.GetSpawnOptions(workspace);
+            string[] goalOptions = WaveEditorPanel.GetGoalOptions(workspace);
+
+            Assert.AreEqual(0, spawnOptions.Length);
+            Assert.AreEqual(0, goalOptions.Length);
+        }
+
+        [Test]
         public void GenerateWavePath_UsesSelectedSpawnAndGoalIdsWithPortalAwareAStar() {
             var workspace = LevelEditorWorkspace.CreateNew("Tutorial_01");
             workspace.MapWidth = 6;
@@ -100,6 +111,7 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
         public static void RunFromCommandLine() {
             var tests = new WorkspaceWavePathAuthoringTests();
             tests.GetWaveSemanticOptions_ReturnsCurrentSpawnAndGoalIds();
+            tests.GetWaveSemanticOptions_ReturnEmptyWithoutExplicitMarkers();
             tests.GenerateWavePath_UsesSelectedSpawnAndGoalIdsWithPortalAwareAStar();
             tests.ClearAndToggleWavePath_UpdatesSelectedWaveNodes();
             Debug.Log("[LevelEditorTests] WorkspaceWavePathAuthoringTests passed.");

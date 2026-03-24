@@ -20,7 +20,7 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
         }
 
         [Test]
-        public void SetSpawnPoint_MovesSpawnMarkerVisualToNewTile() {
+        public void PlaceSpawnMarker_RendersSemanticVisualOnSelectedTile() {
             var workspace = LevelEditorWorkspace.CreateNew("Tutorial_01");
             var controller = new WorkspaceMapController(workspace);
 
@@ -32,18 +32,15 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
             var root = WhiteboxGenerationService.GenerateIntoOpenScene(workspace);
 
             try {
-                var originalTile = FindTile(root, 0, 0);
                 var updatedTile = FindTile(root, 2, 1);
 
-                Assert.IsNotNull(originalTile);
                 Assert.IsNotNull(updatedTile);
-                Assert.IsNotNull(originalTile.transform.Find("SpawnMarkerVisual"));
                 Assert.IsNull(updatedTile.transform.Find("SpawnMarkerVisual"));
 
-                controller.SetSpawnPoint(2, 1);
+                controller.PlaceSpawnMarker(2, 1);
 
-                Assert.IsNull(originalTile.transform.Find("SpawnMarkerVisual"));
                 Assert.IsNotNull(updatedTile.transform.Find("SpawnMarkerVisual"));
+                Assert.AreEqual("R1", updatedTile.SemanticLabel);
             } finally {
                 if (root != null) {
                     Object.DestroyImmediate(root.gameObject);
@@ -52,7 +49,7 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
         }
 
         [Test]
-        public void PlaceSpawnMarker_FirstSemanticPlacementClearsLegacyFallbackVisual() {
+        public void PlaceGoalMarker_RendersSemanticVisualOnSelectedTile() {
             var workspace = LevelEditorWorkspace.CreateNew("Tutorial_01");
             var controller = new WorkspaceMapController(workspace);
 
@@ -64,19 +61,14 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
             var root = WhiteboxGenerationService.GenerateIntoOpenScene(workspace);
 
             try {
-                var originalTile = FindTile(root, 0, 0);
                 var semanticTile = FindTile(root, 2, 1);
-
-                Assert.IsNotNull(originalTile);
                 Assert.IsNotNull(semanticTile);
-                Assert.IsNotNull(originalTile.transform.Find("SpawnMarkerVisual"));
-                Assert.IsNull(semanticTile.transform.Find("SpawnMarkerVisual"));
+                Assert.IsNull(semanticTile.transform.Find("GoalMarkerVisual"));
 
-                controller.PlaceSpawnMarker(2, 1);
+                controller.PlaceGoalMarker(2, 1);
 
-                Assert.IsNull(originalTile.transform.Find("SpawnMarkerVisual"));
-                Assert.IsNotNull(semanticTile.transform.Find("SpawnMarkerVisual"));
-                Assert.AreEqual("R1", semanticTile.SemanticLabel);
+                Assert.IsNotNull(semanticTile.transform.Find("GoalMarkerVisual"));
+                Assert.AreEqual("B1", semanticTile.SemanticLabel);
             } finally {
                 if (root != null) {
                     Object.DestroyImmediate(root.gameObject);
@@ -96,8 +88,8 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
 
         public static void RunFromCommandLine() {
             new WorkspaceMapControllerTests().PaintTile_WritesOverrideIntoWorkspace();
-            new WorkspaceMapControllerTests().SetSpawnPoint_MovesSpawnMarkerVisualToNewTile();
-            new WorkspaceMapControllerTests().PlaceSpawnMarker_FirstSemanticPlacementClearsLegacyFallbackVisual();
+            new WorkspaceMapControllerTests().PlaceSpawnMarker_RendersSemanticVisualOnSelectedTile();
+            new WorkspaceMapControllerTests().PlaceGoalMarker_RendersSemanticVisualOnSelectedTile();
             Debug.Log("[LevelEditorTests] WorkspaceMapControllerTests passed.");
         }
     }

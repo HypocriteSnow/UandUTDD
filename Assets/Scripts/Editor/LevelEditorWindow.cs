@@ -54,6 +54,9 @@ public class LevelEditorWindow : EditorWindow {
     // ==================== 关卡管理 ====================
     
     private string _newLevelName = "NewLevel";
+    private int _newMapWidth = 10;
+    private int _newMapDepth = 10;
+    private float _newCellSize = 1f;
     private readonly LevelEditorSession _session = new LevelEditorSession();
     
     
@@ -106,6 +109,74 @@ public class LevelEditorWindow : EditorWindow {
     /// 关卡管理区域
     /// </summary>
     private void DrawLevelManagementSection() {
+        {
+        EditorGUILayout.LabelField("Workspace", EditorStyles.boldLabel);
+
+        var currentWorkspace = _session.CurrentWorkspace;
+        bool hasCurrentWorkspace = currentWorkspace != null;
+
+        if (hasCurrentWorkspace) {
+            EditorGUI.BeginChangeCheck();
+            string nextLevelName = EditorGUILayout.TextField("Workspace Name", currentWorkspace.LevelName);
+            string nextExportName = EditorGUILayout.TextField("Export Name", currentWorkspace.ExportName);
+            int nextMapWidth = EditorGUILayout.IntField("Map Width", currentWorkspace.MapWidth);
+            int nextMapDepth = EditorGUILayout.IntField("Map Depth", currentWorkspace.MapDepth);
+            float nextCellSize = EditorGUILayout.FloatField("Cell Size", currentWorkspace.CellSize);
+            if (EditorGUI.EndChangeCheck()) {
+                currentWorkspace.LevelName = nextLevelName;
+                currentWorkspace.ExportName = nextExportName;
+                currentWorkspace.MapWidth = Mathf.Max(1, nextMapWidth);
+                currentWorkspace.MapDepth = Mathf.Max(1, nextMapDepth);
+                currentWorkspace.CellSize = Mathf.Max(0.1f, nextCellSize);
+                SyncDraftFieldsFromWorkspace(currentWorkspace);
+                MarkCurrentWorkspaceDirty();
+            }
+
+            if (GUILayout.Button("Sync Naming", GUILayout.Width(120))) {
+                SyncWorkspaceNaming();
+            }
+        } else {
+            _newLevelName = EditorGUILayout.TextField("Workspace Name", _newLevelName);
+            _newMapWidth = Mathf.Max(1, EditorGUILayout.IntField("Map Width", _newMapWidth));
+            _newMapDepth = Mathf.Max(1, EditorGUILayout.IntField("Map Depth", _newMapDepth));
+            _newCellSize = Mathf.Max(0.1f, EditorGUILayout.FloatField("Cell Size", _newCellSize));
+        }
+
+        EditorGUILayout.BeginHorizontal();
+        if (GUILayout.Button("New Workspace", GUILayout.Width(120))) {
+            EditorApplication.delayCall += CreateWorkspace;
+        }
+
+        if (GUILayout.Button("Open Workspace", GUILayout.Width(120))) {
+            EditorApplication.delayCall += OpenWorkspace;
+        }
+
+        GUI.enabled = hasCurrentWorkspace;
+        if (GUILayout.Button("Save Workspace", GUILayout.Width(120))) {
+            EditorApplication.delayCall += SaveWorkspace;
+        }
+        GUI.enabled = true;
+        EditorGUILayout.EndHorizontal();
+
+        if (hasCurrentWorkspace) {
+            EditorGUILayout.HelpBox(
+                $"Current workspace: {currentWorkspace.LevelName} ({currentWorkspace.MapWidth}x{currentWorkspace.MapDepth}, cell {currentWorkspace.CellSize:0.##})",
+                MessageType.Info);
+        } else {
+            EditorGUILayout.HelpBox("Configure base map parameters, create a workspace, then generate the whitebox.", MessageType.Info);
+        }
+
+        GUI.enabled = hasCurrentWorkspace;
+        if (GUILayout.Button("Generate / Refresh Whitebox", GUILayout.Height(30))) {
+            EditorApplication.delayCall += GenerateWhiteboxFromWorkspace;
+        }
+        if (GUILayout.Button("Export LevelConfig", GUILayout.Height(30))) {
+            EditorApplication.delayCall += ExportCurrentWorkspace;
+        }
+        GUI.enabled = true;
+        return;
+#pragma warning disable 162
+        }
         EditorGUILayout.LabelField("工作区", EditorStyles.boldLabel);
         
         EditorGUILayout.BeginHorizontal();
@@ -184,7 +255,18 @@ public class LevelEditorWindow : EditorWindow {
     /// <summary>
     /// 配置区域
     /// </summary>
+#pragma warning restore 162
     private void DrawConfigSection() {
+        EditorGUILayout.LabelField("Export Info", EditorStyles.boldLabel);
+
+        if (_session.CurrentWorkspace != null) {
+            EditorGUILayout.LabelField($"Export Asset: {LevelConfigExportService.BuildAssetName(_session.CurrentWorkspace)}");
+            EditorGUILayout.HelpBox("Workspace is the only editor-time source of truth. LevelConfig is generated only during export.", MessageType.Info);
+        } else {
+            EditorGUILayout.HelpBox("Create or open a workspace to view export information.", MessageType.Info);
+        }
+        return;
+#pragma warning disable 162
         EditorGUILayout.LabelField("运行时配置兼容", EditorStyles.boldLabel);
 
         var nextConfig = (LevelConfig)EditorGUILayout.ObjectField("Level Config", _config, typeof(LevelConfig), false);
@@ -207,6 +289,7 @@ public class LevelEditorWindow : EditorWindow {
     /// <summary>
     /// 运行时参数区域
     /// </summary>
+#pragma warning restore 162
     private void DrawRuntimeSection() {
         EditorGUI.BeginChangeCheck();
         LevelRuntimePanel.Draw(_session.CurrentWorkspace);
@@ -253,7 +336,7 @@ public class LevelEditorWindow : EditorWindow {
     private void DrawEditSection() {
         EditorGUILayout.LabelField("编辑控制", EditorStyles.boldLabel);
         
-        GUI.enabled = (_session.CurrentWorkspace != null || (_config != null && _visualConfig != null));
+        GUI.enabled = _session.CurrentWorkspace != null;
         
         if (_isEditMode) {
             EditorGUILayout.HelpBox("编辑模式已激活\n在 Scene 视图中可以看到网格", MessageType.Info);
@@ -772,6 +855,9 @@ public class LevelEditorWindow : EditorWindow {
         }
 
         var workspace = LevelEditorWorkspace.CreateNew(_newLevelName);
+        workspace.MapWidth = Mathf.Max(1, _newMapWidth);
+        workspace.MapDepth = Mathf.Max(1, _newMapDepth);
+        workspace.CellSize = Mathf.Max(0.1f, _newCellSize);
         string assetPath = LevelEditorWorkspaceRepository.SaveAsNewAsset(workspace);
         LoadWorkspaceAsset(assetPath);
 
@@ -806,7 +892,7 @@ public class LevelEditorWindow : EditorWindow {
         _session.SetWorkspaceAsset(asset);
         _workspaceMapController = new WorkspaceMapController(_session.CurrentWorkspace);
         _pendingPortalEntrancePosition = null;
-        _newLevelName = _session.CurrentWorkspace?.LevelName ?? _newLevelName;
+        SyncDraftFieldsFromWorkspace(_session.CurrentWorkspace);
 
         if (_isEditMode || _whiteboxRoot != null) {
             GenerateWhiteboxFromWorkspace();
@@ -828,7 +914,19 @@ public class LevelEditorWindow : EditorWindow {
         }
 
         _session.CurrentWorkspace.ExportName = _session.CurrentWorkspace.LevelName;
+        SyncDraftFieldsFromWorkspace(_session.CurrentWorkspace);
         MarkCurrentWorkspaceDirty();
+    }
+
+    private void SyncDraftFieldsFromWorkspace(LevelEditorWorkspace workspace) {
+        if (workspace == null) {
+            return;
+        }
+
+        _newLevelName = workspace.LevelName;
+        _newMapWidth = Mathf.Max(1, workspace.MapWidth);
+        _newMapDepth = Mathf.Max(1, workspace.MapDepth);
+        _newCellSize = Mathf.Max(0.1f, workspace.CellSize);
     }
 
     private void GenerateWhiteboxFromWorkspace() {

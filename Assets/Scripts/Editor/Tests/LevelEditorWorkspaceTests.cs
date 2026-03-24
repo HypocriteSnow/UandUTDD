@@ -19,13 +19,19 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
         }
 
         [Test]
-        public void CreateNewWorkspace_SeedsDefaultSpawnAndGoalMarkers() {
+        public void CreateNewWorkspace_DoesNotResolveImplicitSpawnOrGoalFallback() {
             var workspace = LevelEditorWorkspace.CreateNew("Tutorial_01");
 
-            Assert.AreEqual("spawn_01", workspace.SpawnId);
-            Assert.AreEqual(new Vector2Int(0, 0), workspace.SpawnPoint);
-            Assert.AreEqual("goal_01", workspace.GoalId);
-            Assert.AreEqual(new Vector2Int(9, 9), workspace.GoalPoint);
+            Assert.IsFalse(workspace.TryResolveSpawn(string.Empty, out _));
+            Assert.IsFalse(workspace.TryResolveGoal(string.Empty, out _));
+        }
+
+        [Test]
+        public void CreateDefaultWave_StartsWithoutSemanticReferences() {
+            var wave = LevelEditorWorkspace.CreateDefaultWave("wave_01");
+
+            Assert.IsTrue(string.IsNullOrWhiteSpace(wave.spawnId));
+            Assert.IsTrue(string.IsNullOrWhiteSpace(wave.targetId));
         }
 
         [Test]
@@ -81,7 +87,8 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
 
         public static void RunFromCommandLine() {
             new LevelEditorWorkspaceTests().CreateNewWorkspace_UsesLevelNameAndInitializesRuntimeParameters();
-            new LevelEditorWorkspaceTests().CreateNewWorkspace_SeedsDefaultSpawnAndGoalMarkers();
+            new LevelEditorWorkspaceTests().CreateNewWorkspace_DoesNotResolveImplicitSpawnOrGoalFallback();
+            new LevelEditorWorkspaceTests().CreateDefaultWave_StartsWithoutSemanticReferences();
             new LevelEditorWorkspaceTests().SavedWorkspace_ReopensAndCanExportWithoutManualRepair();
             Debug.Log("[LevelEditorTests] LevelEditorWorkspaceTests passed.");
         }

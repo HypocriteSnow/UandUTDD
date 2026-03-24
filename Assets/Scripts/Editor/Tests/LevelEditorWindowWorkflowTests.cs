@@ -26,6 +26,28 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
         }
 
         [Test]
+        public void CreateWorkspace_UsesConfiguredBaseMapParameters() {
+            var window = ScriptableObject.CreateInstance<LevelEditorWindow>();
+
+            try {
+                SetPrivateField(window, "_newLevelName", "Episode_01");
+                SetPrivateField(window, "_newMapWidth", 14);
+                SetPrivateField(window, "_newMapDepth", 8);
+                SetPrivateField(window, "_newCellSize", 1.5f);
+
+                InvokePrivate(window, "CreateWorkspace");
+
+                var session = GetSession(window);
+                Assert.AreEqual(14, session.CurrentWorkspace.MapWidth);
+                Assert.AreEqual(8, session.CurrentWorkspace.MapDepth);
+                Assert.AreEqual(1.5f, session.CurrentWorkspace.CellSize);
+            } finally {
+                CleanupTrackedAsset(window);
+                Object.DestroyImmediate(window);
+            }
+        }
+
+        [Test]
         public void SaveWorkspace_PersistsUpdatedExportNameBackToAsset() {
             var window = ScriptableObject.CreateInstance<LevelEditorWindow>();
 
@@ -96,6 +118,7 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
 
         public static void RunFromCommandLine() {
             new LevelEditorWindowWorkflowTests().CreateWorkspace_CreatesTrackedWorkspaceAsset();
+            new LevelEditorWindowWorkflowTests().CreateWorkspace_UsesConfiguredBaseMapParameters();
             new LevelEditorWindowWorkflowTests().SaveWorkspace_PersistsUpdatedExportNameBackToAsset();
             new LevelEditorWindowWorkflowTests().LoadWorkspaceAsset_BindsLoadedWorkspaceToCurrentSession();
             new LevelEditorWindowWorkflowTests().SyncWorkspaceNaming_CopiesLevelNameIntoExportName();

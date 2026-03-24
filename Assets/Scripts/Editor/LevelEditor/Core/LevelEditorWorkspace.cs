@@ -180,8 +180,8 @@ namespace ArknightsLite.Editor.LevelEditor.Core {
                 enemyId = string.Empty,
                 count = 1,
                 interval = 1f,
-                spawnId = "spawn_01",
-                targetId = "goal_01",
+                spawnId = string.Empty,
+                targetId = string.Empty,
                 path = new List<PathNodeDefinition>()
             };
         }
@@ -254,14 +254,6 @@ namespace ArknightsLite.Editor.LevelEditor.Core {
 
             var labels = new List<string>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            if (SpawnMarkers.Count == 0 && IsSpawnPoint(x, z)) {
-                AddLabel(labels, seen, SpawnId);
-            }
-
-            if (GoalMarkers.Count == 0 && IsGoalPoint(x, z)) {
-                AddLabel(labels, seen, GoalId);
-            }
 
             AddMarkerLabels(labels, seen, SpawnMarkers, x, z);
             AddMarkerLabels(labels, seen, GoalMarkers, x, z);
@@ -360,22 +352,12 @@ namespace ArknightsLite.Editor.LevelEditor.Core {
 
         public bool TryResolveSpawn(string spawnId, out Vector2Int position) {
             EnsureDefaults();
-            if (TryResolveMarker(SpawnMarkers, spawnId, out position)) {
-                return true;
-            }
-
-            position = GetResolvedSpawnPoint();
-            return string.IsNullOrWhiteSpace(spawnId) || string.Equals(spawnId, SpawnId, StringComparison.OrdinalIgnoreCase);
+            return TryResolveMarker(SpawnMarkers, spawnId, out position);
         }
 
         public bool TryResolveGoal(string goalId, out Vector2Int position) {
             EnsureDefaults();
-            if (TryResolveMarker(GoalMarkers, goalId, out position)) {
-                return true;
-            }
-
-            position = GetResolvedGoalPoint();
-            return string.IsNullOrWhiteSpace(goalId) || string.Equals(goalId, GoalId, StringComparison.OrdinalIgnoreCase);
+            return TryResolveMarker(GoalMarkers, goalId, out position);
         }
 
         public Vector2Int GetResolvedSpawnPoint() {
@@ -476,15 +458,9 @@ namespace ArknightsLite.Editor.LevelEditor.Core {
         }
 
         private bool HasAnySemanticMarkerAt(int x, int z) {
-            if (ContainsMarkerAt(SpawnMarkers, x, z) || ContainsMarkerAt(GoalMarkers, x, z) || ContainsPortalAt(x, z)) {
-                return true;
-            }
-
-            if (SpawnMarkers.Count == 0 && IsSpawnPoint(x, z)) {
-                return true;
-            }
-
-            return GoalMarkers.Count == 0 && IsGoalPoint(x, z);
+            return ContainsMarkerAt(SpawnMarkers, x, z)
+                || ContainsMarkerAt(GoalMarkers, x, z)
+                || ContainsPortalAt(x, z);
         }
 
         private static bool ContainsMarkerAt(List<SemanticMarker> markers, int x, int z) {

@@ -27,10 +27,12 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
             var workspace = LevelEditorWorkspace.CreateNew("Tutorial_01");
             workspace.MapWidth = 5;
             workspace.MapDepth = 5;
-            workspace.SetSpawnPoint(new Vector2Int(1, 1));
-            workspace.SetGoalPoint(new Vector2Int(3, 2));
+            var spawn = workspace.AddSpawnMarker(new Vector2Int(1, 1));
+            var goal = workspace.AddGoalMarker(new Vector2Int(3, 2));
 
             var wave = LevelEditorWorkspace.CreateDefaultWave("wave_01");
+            wave.spawnId = spawn.Id;
+            wave.targetId = goal.Id;
 
             bool success = PathAutoFillService.TryBuildPathForWave(workspace, wave, out var path);
 

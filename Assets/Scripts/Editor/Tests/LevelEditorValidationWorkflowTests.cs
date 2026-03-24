@@ -31,6 +31,17 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
         }
 
         [Test]
+        public void ValidateWorkspace_FailsWhenSemanticSpawnOrGoalMarkersAreMissing() {
+            var workspace = LevelEditorWorkspace.CreateNew("Workspace_A");
+
+            var result = LevelValidationService.ValidateWorkspace(workspace);
+
+            Assert.IsFalse(result.IsValid);
+            Assert.That(result.Errors, Has.Some.Contains("spawn"));
+            Assert.That(result.Errors, Has.Some.Contains("goal"));
+        }
+
+        [Test]
         public void ValidateWorkspace_FailsWhenExportNameSemanticReferencesOrPathAreInvalid() {
             var workspace = LevelEditorWorkspace.CreateNew("Workspace_A");
             workspace.LevelName = string.Empty;
@@ -61,6 +72,7 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
             var tests = new LevelEditorValidationWorkflowTests();
             tests.Export_UsesExportNameInsteadOfWorkspaceName();
             tests.BuildTransientConfig_UsesSemanticMarkersForRuntimeSpawnAndGoal();
+            tests.ValidateWorkspace_FailsWhenSemanticSpawnOrGoalMarkersAreMissing();
             tests.ValidateWorkspace_FailsWhenExportNameSemanticReferencesOrPathAreInvalid();
             Debug.Log("[LevelEditorTests] LevelEditorValidationWorkflowTests passed.");
         }

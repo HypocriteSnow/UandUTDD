@@ -527,13 +527,11 @@ public class TileAuthoring : MonoBehaviour {
     }
 
     private static bool IsSpawnSemanticLabel(string semanticLabel) {
-        return semanticLabel.StartsWith("R", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(semanticLabel, "spawn_01", StringComparison.OrdinalIgnoreCase);
+        return semanticLabel.StartsWith("R", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsGoalSemanticLabel(string semanticLabel) {
-        return semanticLabel.StartsWith("B", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(semanticLabel, "goal_01", StringComparison.OrdinalIgnoreCase);
+        return semanticLabel.StartsWith("B", StringComparison.OrdinalIgnoreCase);
     }
 
     private bool ContainsSemanticLabelPrefix(string prefix) {

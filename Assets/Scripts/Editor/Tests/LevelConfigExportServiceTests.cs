@@ -50,8 +50,8 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
         [Test]
         public void BuildTransientConfig_UsesWorkspaceSpawnAndGoalMarkers() {
             var workspace = LevelEditorWorkspace.CreateNew("Tutorial_01");
-            workspace.SetSpawnPoint(new Vector2Int(2, 1));
-            workspace.SetGoalPoint(new Vector2Int(6, 4));
+            workspace.AddSpawnMarker(new Vector2Int(2, 1));
+            workspace.AddGoalMarker(new Vector2Int(6, 4));
 
             LevelConfig config = LevelConfigExportService.BuildTransientConfig(workspace);
 

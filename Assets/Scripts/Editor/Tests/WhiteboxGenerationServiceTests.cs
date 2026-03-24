@@ -20,8 +20,8 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
         [Test]
         public void GenerateIntoOpenScene_AssignsSpawnAndGoalMarkersToMatchingTiles() {
             var workspace = LevelEditorWorkspace.CreateNew("Tutorial_01");
-            workspace.SetSpawnPoint(new Vector2Int(1, 1));
-            workspace.SetGoalPoint(new Vector2Int(3, 2));
+            workspace.AddSpawnMarker(new Vector2Int(1, 1));
+            workspace.AddGoalMarker(new Vector2Int(3, 2));
 
             var existingRoot = Object.FindObjectOfType<WhiteboxRoot>();
             if (existingRoot != null) {
@@ -49,6 +49,34 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
                 Assert.IsTrue(goalTile.HasGoalMarker);
                 Assert.IsNotNull(spawnTile.transform.Find("SpawnMarkerVisual"));
                 Assert.IsNotNull(goalTile.transform.Find("GoalMarkerVisual"));
+            } finally {
+                if (root != null) {
+                    Object.DestroyImmediate(root.gameObject);
+                }
+            }
+        }
+
+        [Test]
+        public void GenerateIntoOpenScene_NewWorkspaceDoesNotRenderImplicitLegacySpawnOrGoal() {
+            var workspace = LevelEditorWorkspace.CreateNew("Tutorial_01");
+
+            var existingRoot = Object.FindObjectOfType<WhiteboxRoot>();
+            if (existingRoot != null) {
+                Object.DestroyImmediate(existingRoot.gameObject);
+            }
+
+            var root = WhiteboxGenerationService.GenerateIntoOpenScene(workspace);
+
+            try {
+                var originTile = FindTile(root, 0, 0);
+                var cornerTile = FindTile(root, workspace.MapWidth - 1, workspace.MapDepth - 1);
+
+                Assert.IsNotNull(originTile);
+                Assert.IsNotNull(cornerTile);
+                Assert.IsNull(originTile.transform.Find("SpawnMarkerVisual"));
+                Assert.IsNull(cornerTile.transform.Find("GoalMarkerVisual"));
+                Assert.IsTrue(string.IsNullOrWhiteSpace(originTile.SemanticLabel));
+                Assert.IsTrue(string.IsNullOrWhiteSpace(cornerTile.SemanticLabel));
             } finally {
                 if (root != null) {
                     Object.DestroyImmediate(root.gameObject);
@@ -105,6 +133,7 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
         public static void RunFromCommandLine() {
             new WhiteboxGenerationServiceTests().EnsureWhitebox_CreatesExpectedTileCountFromWorkspaceSize();
             new WhiteboxGenerationServiceTests().GenerateIntoOpenScene_AssignsSpawnAndGoalMarkersToMatchingTiles();
+            new WhiteboxGenerationServiceTests().GenerateIntoOpenScene_NewWorkspaceDoesNotRenderImplicitLegacySpawnOrGoal();
             new WhiteboxGenerationServiceTests().GenerateIntoOpenScene_FromReloadedWorkspace_RendersSemanticAndPortalLabels();
             Debug.Log("[LevelEditorTests] WhiteboxGenerationServiceTests passed.");
         }

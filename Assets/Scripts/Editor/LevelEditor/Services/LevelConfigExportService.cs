@@ -108,10 +108,6 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
                 }
             }
 
-            if (result.Count == 0) {
-                result.Add(workspace.GetResolvedSpawnPoint());
-            }
-
             return result;
         }
 
@@ -124,7 +120,7 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
                 }
             }
 
-            return workspace != null ? workspace.GetResolvedGoalPoint() : Vector2Int.zero;
+            return new Vector2Int(-1, -1);
         }
 
         private static List<TileData> CloneTiles(LevelEditorWorkspace workspace, List<Vector2Int> spawnPoints, Vector2Int goalPoint) {

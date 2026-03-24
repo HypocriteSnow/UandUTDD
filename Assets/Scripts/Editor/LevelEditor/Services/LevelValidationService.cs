@@ -50,11 +50,11 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
 
             bool hasSpawnMarkers = workspace.SpawnMarkers != null && workspace.SpawnMarkers.Count > 0;
             bool hasGoalMarkers = workspace.GoalMarkers != null && workspace.GoalMarkers.Count > 0;
-            if (!hasSpawnMarkers && string.IsNullOrWhiteSpace(workspace.SpawnId)) {
+            if (!hasSpawnMarkers) {
                 result.Errors.Add("At least one spawn marker is required.");
             }
 
-            if (!hasGoalMarkers && string.IsNullOrWhiteSpace(workspace.GoalId)) {
+            if (!hasGoalMarkers) {
                 result.Errors.Add("At least one goal marker is required.");
             }
 

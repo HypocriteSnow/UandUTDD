@@ -61,11 +61,11 @@ namespace ArknightsLite.Editor.LevelEditor.Panels {
         }
 
         public static string[] GetSpawnOptions(LevelEditorWorkspace workspace) {
-            return GetMarkerOptions(workspace?.SpawnMarkers, workspace?.SpawnId);
+            return GetMarkerOptions(workspace?.SpawnMarkers);
         }
 
         public static string[] GetGoalOptions(LevelEditorWorkspace workspace) {
-            return GetMarkerOptions(workspace?.GoalMarkers, workspace?.GoalId);
+            return GetMarkerOptions(workspace?.GoalMarkers);
         }
 
         private static void InitializeWaveSemanticIds(LevelEditorWorkspace workspace, WaveDefinition wave) {
@@ -97,7 +97,7 @@ namespace ArknightsLite.Editor.LevelEditor.Panels {
             selectedValue = options[Mathf.Clamp(nextIndex, 0, options.Length - 1)];
         }
 
-        private static string[] GetMarkerOptions(System.Collections.Generic.List<LevelEditorWorkspace.SemanticMarker> markers, string fallbackId) {
+        private static string[] GetMarkerOptions(System.Collections.Generic.List<LevelEditorWorkspace.SemanticMarker> markers) {
             if (markers != null && markers.Count > 0) {
                 string[] options = new string[markers.Count];
                 for (int i = 0; i < markers.Count; i++) {
@@ -109,9 +109,7 @@ namespace ArknightsLite.Editor.LevelEditor.Panels {
                 return options;
             }
 
-            return string.IsNullOrWhiteSpace(fallbackId)
-                ? Array.Empty<string>()
-                : new[] { fallbackId };
+            return Array.Empty<string>();
         }
     }
 }
