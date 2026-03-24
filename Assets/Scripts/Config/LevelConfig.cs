@@ -26,6 +26,19 @@ namespace ArknightsLite.Config {
         
         [Tooltip("默认格子类型（未在特殊格子列表中的格子使用此类型）")]
         public TileType defaultTileType = TileType.Forbidden;
+
+        [Header("关卡运行时参数")]
+        [Tooltip("初始部署点")]
+        public int initialDp = 20;
+
+        [Tooltip("基地生命值")]
+        public int baseHealth = 3;
+
+        [Tooltip("部署点恢复间隔")]
+        public float dpRecoveryInterval = 1f;
+
+        [Tooltip("单次恢复部署点")]
+        public int dpRecoveryAmount = 1;
         
         
         [Header("关卡必需配置")]
@@ -41,6 +54,19 @@ namespace ArknightsLite.Config {
         [Header("特殊格子配置（可选）")]
         [Tooltip("特殊格子列表（不配置则全部为默认 Ground/高度0）")]
         public List<TileData> specialTiles = new List<TileData>();
+
+        [Header("关卡扩展数据")]
+        [Tooltip("传送门配置列表")]
+        public List<PortalDefinition> portals = new List<PortalDefinition>();
+
+        [Tooltip("波次配置列表")]
+        public List<WaveDefinition> waves = new List<WaveDefinition>();
+
+        [Tooltip("关卡内敌人模板")]
+        public List<EnemyTemplateData> enemies = new List<EnemyTemplateData>();
+
+        [Tooltip("关卡内干员模板")]
+        public List<OperatorTemplateData> operators = new List<OperatorTemplateData>();
         
         
         /// <summary>

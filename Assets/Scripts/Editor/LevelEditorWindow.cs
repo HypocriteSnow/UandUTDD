@@ -2,15 +2,28 @@ using UnityEngine;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine.SceneManagement;
+using System;
 using System.IO;
 using ArknightsLite.Config;
 using ArknightsLite.Model;
+using ArknightsLite.Editor.LevelEditor.Core;
+using ArknightsLite.Editor.LevelEditor.Map;
+using ArknightsLite.Editor.LevelEditor.Panels;
+using ArknightsLite.Editor.LevelEditor.Services;
 
 /// <summary>
 /// 关卡编辑器窗口
 /// 职责：生成可编辑的网格、提供笔刷工具、管理编辑会话
 /// </summary>
 public class LevelEditorWindow : EditorWindow {
+    private enum WorkspaceSceneTool {
+        Terrain,
+        Spawn,
+        Goal,
+        PortalEntrance,
+        PortalExit,
+        PathEdit
+    }
     
     // ==================== 配置引用 ====================
     
@@ -21,7 +34,11 @@ public class LevelEditorWindow : EditorWindow {
     // ==================== 编辑状态 ====================
     
     private GameObject _gridParent;
+    private WhiteboxRoot _whiteboxRoot;
+    private WorkspaceMapController _workspaceMapController;
     private bool _isEditMode = false;
+    private int _workspaceToolTab = 0;
+    private int _selectedWaveIndex = -1;
     
     
     // ==================== 笔刷设置 ====================
@@ -30,11 +47,17 @@ public class LevelEditorWindow : EditorWindow {
     private TileType _brushType = TileType.Ground;
     private int _brushHeight = 0;
     private bool _isPainting = false;
+    private WorkspaceSceneTool _workspaceSceneTool = WorkspaceSceneTool.Terrain;
+    private Vector2Int? _pendingPortalEntrancePosition;
     
     
     // ==================== 关卡管理 ====================
     
     private string _newLevelName = "NewLevel";
+    private int _newMapWidth = 10;
+    private int _newMapDepth = 10;
+    private float _newCellSize = 1f;
+    private readonly LevelEditorSession _session = new LevelEditorSession();
     
     
     // ==================== 窗口管理 ====================
@@ -63,6 +86,9 @@ public class LevelEditorWindow : EditorWindow {
         
         DrawLevelManagementSection();
         EditorGUILayout.Space(10);
+
+        DrawRuntimeSection();
+        EditorGUILayout.Space(10);
         
         DrawConfigSection();
         EditorGUILayout.Space(10);
@@ -72,6 +98,9 @@ public class LevelEditorWindow : EditorWindow {
         
         DrawBrushSection();
         EditorGUILayout.Space(10);
+
+        DrawWorkspaceModulesSection();
+        EditorGUILayout.Space(10);
         
         DrawInfoSection();
     }
@@ -80,14 +109,131 @@ public class LevelEditorWindow : EditorWindow {
     /// 关卡管理区域
     /// </summary>
     private void DrawLevelManagementSection() {
-        EditorGUILayout.LabelField("关卡管理", EditorStyles.boldLabel);
+        {
+        EditorGUILayout.LabelField("Workspace", EditorStyles.boldLabel);
+
+        var currentWorkspace = _session.CurrentWorkspace;
+        bool hasCurrentWorkspace = currentWorkspace != null;
+
+        if (hasCurrentWorkspace) {
+            EditorGUI.BeginChangeCheck();
+            string nextLevelName = EditorGUILayout.TextField("Workspace Name", currentWorkspace.LevelName);
+            string nextExportName = EditorGUILayout.TextField("Export Name", currentWorkspace.ExportName);
+            int nextMapWidth = EditorGUILayout.IntField("Map Width", currentWorkspace.MapWidth);
+            int nextMapDepth = EditorGUILayout.IntField("Map Depth", currentWorkspace.MapDepth);
+            float nextCellSize = EditorGUILayout.FloatField("Cell Size", currentWorkspace.CellSize);
+            if (EditorGUI.EndChangeCheck()) {
+                currentWorkspace.LevelName = nextLevelName;
+                currentWorkspace.ExportName = nextExportName;
+                currentWorkspace.MapWidth = Mathf.Max(1, nextMapWidth);
+                currentWorkspace.MapDepth = Mathf.Max(1, nextMapDepth);
+                currentWorkspace.CellSize = Mathf.Max(0.1f, nextCellSize);
+                SyncDraftFieldsFromWorkspace(currentWorkspace);
+                MarkCurrentWorkspaceDirty();
+            }
+
+            if (GUILayout.Button("Sync Naming", GUILayout.Width(120))) {
+                SyncWorkspaceNaming();
+            }
+        } else {
+            _newLevelName = EditorGUILayout.TextField("Workspace Name", _newLevelName);
+            _newMapWidth = Mathf.Max(1, EditorGUILayout.IntField("Map Width", _newMapWidth));
+            _newMapDepth = Mathf.Max(1, EditorGUILayout.IntField("Map Depth", _newMapDepth));
+            _newCellSize = Mathf.Max(0.1f, EditorGUILayout.FloatField("Cell Size", _newCellSize));
+        }
+
+        EditorGUILayout.BeginHorizontal();
+        if (GUILayout.Button("New Workspace", GUILayout.Width(120))) {
+            EditorApplication.delayCall += CreateWorkspace;
+        }
+
+        if (GUILayout.Button("Open Workspace", GUILayout.Width(120))) {
+            EditorApplication.delayCall += OpenWorkspace;
+        }
+
+        GUI.enabled = hasCurrentWorkspace;
+        if (GUILayout.Button("Save Workspace", GUILayout.Width(120))) {
+            EditorApplication.delayCall += SaveWorkspace;
+        }
+        GUI.enabled = true;
+        EditorGUILayout.EndHorizontal();
+
+        if (hasCurrentWorkspace) {
+            EditorGUILayout.HelpBox(
+                $"Current workspace: {currentWorkspace.LevelName} ({currentWorkspace.MapWidth}x{currentWorkspace.MapDepth}, cell {currentWorkspace.CellSize:0.##})",
+                MessageType.Info);
+        } else {
+            EditorGUILayout.HelpBox("Configure base map parameters, create a workspace, then generate the whitebox.", MessageType.Info);
+        }
+
+        GUI.enabled = hasCurrentWorkspace;
+        if (GUILayout.Button("Generate / Refresh Whitebox", GUILayout.Height(30))) {
+            EditorApplication.delayCall += GenerateWhiteboxFromWorkspace;
+        }
+        if (GUILayout.Button("Export LevelConfig", GUILayout.Height(30))) {
+            EditorApplication.delayCall += ExportCurrentWorkspace;
+        }
+        GUI.enabled = true;
+        return;
+#pragma warning disable 162
+        }
+        EditorGUILayout.LabelField("工作区", EditorStyles.boldLabel);
         
         EditorGUILayout.BeginHorizontal();
-        _newLevelName = EditorGUILayout.TextField("新关卡名称", _newLevelName);
-        if (GUILayout.Button("创建配置", GUILayout.Width(80))) {
-            EditorApplication.delayCall += CreateLevelConfig;
+        _newLevelName = EditorGUILayout.TextField("关卡名称", _newLevelName);
+        if (GUILayout.Button("新建工作区", GUILayout.Width(80))) {
+            EditorApplication.delayCall += CreateWorkspace;
         }
         EditorGUILayout.EndHorizontal();
+
+        var workspace = _session.CurrentWorkspace;
+        bool hasWorkspace = workspace != null;
+
+        EditorGUILayout.BeginHorizontal();
+        if (GUILayout.Button("Open Workspace", GUILayout.Width(120))) {
+            EditorApplication.delayCall += OpenWorkspace;
+        }
+
+        GUI.enabled = hasWorkspace;
+        if (GUILayout.Button("Save Workspace", GUILayout.Width(120))) {
+            EditorApplication.delayCall += SaveWorkspace;
+        }
+        GUI.enabled = true;
+        EditorGUILayout.EndHorizontal();
+
+        if (hasWorkspace) {
+            EditorGUI.BeginChangeCheck();
+            string nextLevelName = EditorGUILayout.TextField("Workspace Name", workspace.LevelName);
+            string nextExportName = EditorGUILayout.TextField("Export Name", workspace.ExportName);
+            if (EditorGUI.EndChangeCheck()) {
+                workspace.LevelName = nextLevelName;
+                workspace.ExportName = nextExportName;
+                _newLevelName = nextLevelName;
+                MarkCurrentWorkspaceDirty();
+            }
+
+            if (GUILayout.Button("Sync Naming", GUILayout.Width(120))) {
+                SyncWorkspaceNaming();
+            }
+        }
+
+        if (hasWorkspace) {
+            EditorGUILayout.HelpBox($"当前工作区: {workspace.LevelName} ({workspace.MapWidth}x{workspace.MapDepth})", MessageType.Info);
+        } else {
+            EditorGUILayout.HelpBox("先创建工作区，再生成/刷新白模。", MessageType.Info);
+        }
+
+        GUI.enabled = hasWorkspace;
+        if (GUILayout.Button("生成/刷新白模", GUILayout.Height(30))) {
+            EditorApplication.delayCall += GenerateWhiteboxFromWorkspace;
+        }
+        if (GUILayout.Button("导出 LevelConfig", GUILayout.Height(30))) {
+            EditorApplication.delayCall += ExportCurrentWorkspace;
+        }
+        GUI.enabled = true;
+
+        EditorGUILayout.Space(5);
+        EditorGUILayout.LabelField("旧配置兼容", EditorStyles.miniBoldLabel);
         
         bool hasConfigs = (_config != null && _visualConfig != null);
         
@@ -109,14 +255,78 @@ public class LevelEditorWindow : EditorWindow {
     /// <summary>
     /// 配置区域
     /// </summary>
+#pragma warning restore 162
     private void DrawConfigSection() {
-        EditorGUILayout.LabelField("配置文件", EditorStyles.boldLabel);
-        
-        _config = (LevelConfig)EditorGUILayout.ObjectField("Level Config", _config, typeof(LevelConfig), false);
+        EditorGUILayout.LabelField("Export Info", EditorStyles.boldLabel);
+
+        if (_session.CurrentWorkspace != null) {
+            EditorGUILayout.LabelField($"Export Asset: {LevelConfigExportService.BuildAssetName(_session.CurrentWorkspace)}");
+            EditorGUILayout.HelpBox("Workspace is the only editor-time source of truth. LevelConfig is generated only during export.", MessageType.Info);
+        } else {
+            EditorGUILayout.HelpBox("Create or open a workspace to view export information.", MessageType.Info);
+        }
+        return;
+#pragma warning disable 162
+        EditorGUILayout.LabelField("运行时配置兼容", EditorStyles.boldLabel);
+
+        var nextConfig = (LevelConfig)EditorGUILayout.ObjectField("Level Config", _config, typeof(LevelConfig), false);
+        if (nextConfig != _config) {
+            _config = nextConfig;
+            _session.SetCurrentLevel(_config);
+        }
+
         _visualConfig = (GridVisualConfig)EditorGUILayout.ObjectField("Visual Config", _visualConfig, typeof(GridVisualConfig), false);
         
-        if (_config == null || _visualConfig == null) {
-            EditorGUILayout.HelpBox("请先拖入 LevelConfig 和 GridVisualConfig", MessageType.Warning);
+        if (_session.CurrentWorkspace != null) {
+            EditorGUILayout.LabelField($"Spawn: {_session.CurrentWorkspace.SpawnId} @ {_session.CurrentWorkspace.GetResolvedSpawnPoint()}");
+            EditorGUILayout.LabelField($"Goal: {_session.CurrentWorkspace.GoalId} @ {_session.CurrentWorkspace.GetResolvedGoalPoint()}");
+            EditorGUILayout.HelpBox("当前以 Workspace 驱动白模；这里保留旧 LevelConfig/GridVisualConfig 的兼容入口。", MessageType.Info);
+        } else if (_config == null || _visualConfig == null) {
+            EditorGUILayout.HelpBox("如需走旧流程，请拖入 LevelConfig 和 GridVisualConfig。", MessageType.Warning);
+        }
+    }
+
+    /// <summary>
+    /// 运行时参数区域
+    /// </summary>
+#pragma warning restore 162
+    private void DrawRuntimeSection() {
+        EditorGUI.BeginChangeCheck();
+        LevelRuntimePanel.Draw(_session.CurrentWorkspace);
+        if (EditorGUI.EndChangeCheck()) {
+            MarkCurrentWorkspaceDirty();
+        }
+    }
+
+    /// <summary>
+    /// Workspace 模块区域
+    /// </summary>
+    private void DrawWorkspaceModulesSection() {
+        if (_session.CurrentWorkspace == null) {
+            return;
+        }
+
+        EditorGUILayout.LabelField("工作区模块", EditorStyles.boldLabel);
+        _workspaceToolTab = GUILayout.Toolbar(_workspaceToolTab, new[] { "地图", "传送门", "路径", "波次" });
+
+        EditorGUI.BeginChangeCheck();
+        switch (_workspaceToolTab) {
+            case 0:
+                EditorGUILayout.HelpBox("地图编辑使用上方白模与笔刷工具。", MessageType.Info);
+                break;
+            case 1:
+                PortalEditorPanel.Draw(_session.CurrentWorkspace);
+                break;
+            case 2:
+                PathEditorPanel.Draw(_session.CurrentWorkspace, _selectedWaveIndex);
+                break;
+            case 3:
+                _selectedWaveIndex = WaveEditorPanel.Draw(_session.CurrentWorkspace, _selectedWaveIndex);
+                break;
+        }
+
+        if (EditorGUI.EndChangeCheck()) {
+            MarkCurrentWorkspaceDirty();
         }
     }
     
@@ -126,7 +336,7 @@ public class LevelEditorWindow : EditorWindow {
     private void DrawEditSection() {
         EditorGUILayout.LabelField("编辑控制", EditorStyles.boldLabel);
         
-        GUI.enabled = (_config != null && _visualConfig != null);
+        GUI.enabled = _session.CurrentWorkspace != null;
         
         if (_isEditMode) {
             EditorGUILayout.HelpBox("编辑模式已激活\n在 Scene 视图中可以看到网格", MessageType.Info);
@@ -160,6 +370,12 @@ public class LevelEditorWindow : EditorWindow {
         _brushEnabled = EditorGUILayout.Toggle("启用笔刷", _brushEnabled);
         
         if (_brushEnabled) {
+            _workspaceSceneTool = (WorkspaceSceneTool)GUILayout.Toolbar(
+                (int)_workspaceSceneTool,
+                new[] { "Terrain", "Spawn", "Goal", "Portal In", "Portal Out", "Path" }
+            );
+
+            DrawWorkspaceToolHelp();
             EditorGUILayout.HelpBox("笔刷模式：在 Scene 视图中按住鼠标左键涂抹\n快捷键：1-Ground 2-HighGround 3-Forbidden 4-Hole", MessageType.Info);
             
             _brushType = (TileType)EditorGUILayout.EnumPopup("笔刷类型", _brushType);
@@ -182,18 +398,69 @@ public class LevelEditorWindow : EditorWindow {
     /// <summary>
     /// 信息区域
     /// </summary>
+    private void DrawWorkspaceToolHelp() {
+        if (_session.CurrentWorkspace == null) {
+            return;
+        }
+
+        switch (_workspaceSceneTool) {
+            case WorkspaceSceneTool.Spawn:
+                EditorGUILayout.HelpBox("Click a tile in SceneView to place a spawn marker. Hotkey: 5", MessageType.Info);
+                EditorGUILayout.LabelField($"Spawn Markers: {_session.CurrentWorkspace.SpawnMarkers.Count}");
+                break;
+
+            case WorkspaceSceneTool.Goal:
+                EditorGUILayout.HelpBox("Click a tile in SceneView to place a goal marker. Hotkey: 6", MessageType.Info);
+                EditorGUILayout.LabelField($"Goal Markers: {_session.CurrentWorkspace.GoalMarkers.Count}");
+                break;
+
+            case WorkspaceSceneTool.PortalEntrance:
+                EditorGUILayout.HelpBox("Click a tile in SceneView to capture the next portal entrance. Hotkey: 7", MessageType.Info);
+                EditorGUILayout.LabelField($"Pending Portal Entrance: {FormatPendingPortalEntrance()}");
+                break;
+
+            case WorkspaceSceneTool.PortalExit:
+                EditorGUILayout.HelpBox("Click a tile in SceneView to finish the pending portal pair. Hotkey: 8", MessageType.Info);
+                EditorGUILayout.LabelField($"Pending Portal Entrance: {FormatPendingPortalEntrance()}");
+                EditorGUILayout.LabelField($"Portal Pairs: {_session.CurrentWorkspace.PortalPairs.Count}");
+                break;
+
+            case WorkspaceSceneTool.PathEdit:
+                EditorGUILayout.HelpBox("Click a tile in SceneView to add or remove a node on the selected wave. Hotkey: 9", MessageType.Info);
+                EditorGUILayout.LabelField($"Selected Wave: {GetSelectedWaveLabel()}");
+                break;
+
+            default:
+                if (_session.CurrentWorkspace != null) {
+                    EditorGUILayout.LabelField($"Spawn Markers: {_session.CurrentWorkspace.SpawnMarkers.Count}");
+                    EditorGUILayout.LabelField($"Goal Markers: {_session.CurrentWorkspace.GoalMarkers.Count}");
+                    EditorGUILayout.LabelField($"Portal Pairs: {_session.CurrentWorkspace.PortalPairs.Count}");
+                }
+                break;
+        }
+    }
+
     private void DrawInfoSection() {
         EditorGUILayout.LabelField("统计信息", EditorStyles.boldLabel);
         
-        if (_config != null) {
+        if (_session.CurrentWorkspace != null) {
+            EditorGUILayout.LabelField($"当前工作区: {_session.CurrentWorkspace.LevelName}");
+            EditorGUILayout.LabelField($"工作区尺寸: {_session.CurrentWorkspace.MapWidth}x{_session.CurrentWorkspace.MapDepth}");
+            EditorGUILayout.LabelField($"当前模块: {_session.Mode}");
+        } else if (_config != null) {
             EditorGUILayout.LabelField($"地图尺寸: {_config.mapWidth}x{_config.mapDepth}");
             EditorGUILayout.LabelField($"特殊格子数量: {_config.specialTiles.Count}");
             EditorGUILayout.LabelField($"起点数量: {_config.spawnPoints.Count}");
+            EditorGUILayout.LabelField($"当前模块: {_session.Mode}");
         }
         
         if (_isEditMode && _gridParent != null) {
             int tileCount = _gridParent.transform.childCount;
             EditorGUILayout.LabelField($"编辑网格: {tileCount} 个格子");
+        }
+
+        if (_whiteboxRoot != null) {
+            EditorGUILayout.LabelField($"白模格子: {_whiteboxRoot.transform.childCount} 个");
         }
     }
     
@@ -204,6 +471,11 @@ public class LevelEditorWindow : EditorWindow {
     /// 进入编辑模式
     /// </summary>
     private void EnterEditMode() {
+        if (_session.CurrentWorkspace != null) {
+            GenerateWhiteboxFromWorkspace();
+            return;
+        }
+
         if (_config == null || _visualConfig == null) {
             EditorUtility.DisplayDialog("错误", "请先配置 LevelConfig 和 GridVisualConfig", "确定");
             return;
@@ -216,6 +488,7 @@ public class LevelEditorWindow : EditorWindow {
         
         GenerateEditGrid();
         _isEditMode = true;
+        _session.StartEditing(_config);
         
         Debug.Log("[LevelEditor] 进入编辑模式");
     }
@@ -232,6 +505,8 @@ public class LevelEditorWindow : EditorWindow {
         
         _isEditMode = false;
         _brushEnabled = false;
+        _pendingPortalEntrancePosition = null;
+        _session.StopEditing();
         
         Debug.Log("[LevelEditor] 退出编辑模式，配置已保存");
         
@@ -313,6 +588,7 @@ public class LevelEditorWindow : EditorWindow {
         
         // 显示笔刷信息
         DrawBrushInfo();
+        DrawSelectedWavePathOverlay();
     }
     
     /// <summary>
@@ -323,6 +599,7 @@ public class LevelEditorWindow : EditorWindow {
             switch (e.keyCode) {
                 case KeyCode.Alpha1:
                 case KeyCode.Keypad1:
+                    _workspaceSceneTool = WorkspaceSceneTool.Terrain;
                     _brushType = TileType.Ground;
                     Repaint();
                     e.Use();
@@ -330,6 +607,7 @@ public class LevelEditorWindow : EditorWindow {
                     
                 case KeyCode.Alpha2:
                 case KeyCode.Keypad2:
+                    _workspaceSceneTool = WorkspaceSceneTool.Terrain;
                     _brushType = TileType.HighGround;
                     Repaint();
                     e.Use();
@@ -337,6 +615,7 @@ public class LevelEditorWindow : EditorWindow {
                     
                 case KeyCode.Alpha3:
                 case KeyCode.Keypad3:
+                    _workspaceSceneTool = WorkspaceSceneTool.Terrain;
                     _brushType = TileType.Forbidden;
                     Repaint();
                     e.Use();
@@ -344,7 +623,43 @@ public class LevelEditorWindow : EditorWindow {
                     
                 case KeyCode.Alpha4:
                 case KeyCode.Keypad4:
+                    _workspaceSceneTool = WorkspaceSceneTool.Terrain;
                     _brushType = TileType.Hole;
+                    Repaint();
+                    e.Use();
+                    break;
+
+                case KeyCode.Alpha5:
+                case KeyCode.Keypad5:
+                    _workspaceSceneTool = WorkspaceSceneTool.Spawn;
+                    Repaint();
+                    e.Use();
+                    break;
+
+                case KeyCode.Alpha6:
+                case KeyCode.Keypad6:
+                    _workspaceSceneTool = WorkspaceSceneTool.Goal;
+                    Repaint();
+                    e.Use();
+                    break;
+
+                case KeyCode.Alpha7:
+                case KeyCode.Keypad7:
+                    _workspaceSceneTool = WorkspaceSceneTool.PortalEntrance;
+                    Repaint();
+                    e.Use();
+                    break;
+
+                case KeyCode.Alpha8:
+                case KeyCode.Keypad8:
+                    _workspaceSceneTool = WorkspaceSceneTool.PortalExit;
+                    Repaint();
+                    e.Use();
+                    break;
+
+                case KeyCode.Alpha9:
+                case KeyCode.Keypad9:
+                    _workspaceSceneTool = WorkspaceSceneTool.PathEdit;
                     Repaint();
                     e.Use();
                     break;
@@ -356,6 +671,17 @@ public class LevelEditorWindow : EditorWindow {
     /// 处理笔刷涂抹
     /// </summary>
     private void HandleBrushPaint(Event e) {
+        if (_workspaceSceneTool != WorkspaceSceneTool.Terrain) {
+            if (e.type == EventType.MouseDown && e.button == 0) {
+                PaintTile(e);
+            }
+
+            if (e.type == EventType.MouseUp && e.button == 0) {
+                _isPainting = false;
+            }
+
+            return;
+        }
         // 鼠标按下或拖动时涂抹
         if (e.type == EventType.MouseDown && e.button == 0) {
             _isPainting = true;
@@ -380,6 +706,68 @@ public class LevelEditorWindow : EditorWindow {
             var authoring = hit.collider.GetComponent<TileAuthoring>();
             
             if (authoring != null) {
+                if (_session.CurrentWorkspace != null) {
+                    _workspaceMapController = _workspaceMapController ?? new WorkspaceMapController(_session.CurrentWorkspace);
+                    switch (_workspaceSceneTool) {
+                        case WorkspaceSceneTool.Spawn:
+                            Undo.RecordObject(authoring, "Place Workspace Spawn Marker");
+                            _workspaceMapController.PlaceSpawnMarker(authoring.X, authoring.Z);
+                            MarkCurrentWorkspaceDirty();
+                            break;
+
+                        case WorkspaceSceneTool.Goal:
+                            Undo.RecordObject(authoring, "Place Workspace Goal Marker");
+                            _workspaceMapController.PlaceGoalMarker(authoring.X, authoring.Z);
+                            MarkCurrentWorkspaceDirty();
+                            break;
+
+                        case WorkspaceSceneTool.PortalEntrance:
+                            _pendingPortalEntrancePosition = new Vector2Int(authoring.X, authoring.Z);
+                            Repaint();
+                            break;
+
+                        case WorkspaceSceneTool.PortalExit:
+                            if (!_pendingPortalEntrancePosition.HasValue) {
+                                Debug.LogWarning("[LevelEditor] Select a portal entrance before placing a portal exit.");
+                                break;
+                            }
+
+                            if (_pendingPortalEntrancePosition.Value.x == authoring.X
+                                && _pendingPortalEntrancePosition.Value.y == authoring.Z) {
+                                Debug.LogWarning("[LevelEditor] Portal entrance and exit must be placed on different tiles.");
+                                break;
+                            }
+
+                            Undo.RecordObject(authoring, "Place Workspace Portal Pair");
+                            _workspaceMapController.PlacePortalPair(
+                                _pendingPortalEntrancePosition.Value,
+                                new Vector2Int(authoring.X, authoring.Z));
+                            _pendingPortalEntrancePosition = null;
+                            MarkCurrentWorkspaceDirty();
+                            Repaint();
+                            break;
+
+                        case WorkspaceSceneTool.PathEdit:
+                            if (PathEditorPanel.TogglePathNodeForSelectedWave(
+                                _session.CurrentWorkspace,
+                                _selectedWaveIndex,
+                                new Vector2Int(authoring.X, authoring.Z))) {
+                                MarkCurrentWorkspaceDirty();
+                            }
+
+                            Repaint();
+                            break;
+
+                        default:
+                            Undo.RecordObject(authoring, "Paint Workspace Tile");
+                            _workspaceMapController.PaintTile(authoring.X, authoring.Z, _brushType, _brushHeight);
+                            MarkCurrentWorkspaceDirty();
+                            break;
+                    }
+                    e.Use();
+                    return;
+                }
+
                 // 记录 Undo
                 Undo.RecordObject(authoring, "Paint Tile");
                 Undo.RecordObject(_config, "Paint Tile");
@@ -405,8 +793,8 @@ public class LevelEditorWindow : EditorWindow {
         style.fontSize = 14;
         style.normal.textColor = Color.white;
         
-        string info = $"笔刷: {_brushType} (高度 {_brushHeight})\n按 1-4 切换类型";
-        GUILayout.BeginArea(new Rect(10, 10, 250, 60));
+        string info = GetSceneToolOverlayText();
+        GUILayout.BeginArea(new Rect(10, 10, 320, 88));
         GUILayout.Box(info, style);
         GUILayout.EndArea();
         
@@ -416,6 +804,32 @@ public class LevelEditorWindow : EditorWindow {
     /// <summary>
     /// 创建纯色贴图（用于 GUI 背景）
     /// </summary>
+    private string GetSceneToolOverlayText() {
+        if (_session.CurrentWorkspace == null) {
+            return $"Tool: {_brushType}\nHotkeys: 1-4 terrain";
+        }
+
+        switch (_workspaceSceneTool) {
+            case WorkspaceSceneTool.Spawn:
+                return "Tool: Spawn\nClick to place a spawn marker\nHotkey: 5";
+
+            case WorkspaceSceneTool.Goal:
+                return "Tool: Goal\nClick to place a goal marker\nHotkey: 6";
+
+            case WorkspaceSceneTool.PortalEntrance:
+                return $"Tool: Portal In\nPending: {FormatPendingPortalEntrance()}\nHotkey: 7";
+
+            case WorkspaceSceneTool.PortalExit:
+                return $"Tool: Portal Out\nPending: {FormatPendingPortalEntrance()}\nHotkey: 8";
+
+            case WorkspaceSceneTool.PathEdit:
+                return $"Tool: Path\nClick to add/remove nodes on {GetSelectedWaveLabel()}\nHotkey: 9";
+
+            default:
+                return $"Tool: Terrain / {_brushType}\nHeight: {_brushHeight}\nHotkeys: 1-4 terrain, 5 spawn, 6 goal, 7-9 semantic";
+        }
+    }
+
     private Texture2D MakeTex(int width, int height, Color col) {
         Color[] pix = new Color[width * height];
         for (int i = 0; i < pix.Length; i++) {
@@ -432,8 +846,258 @@ public class LevelEditorWindow : EditorWindow {
     // ==================== 关卡管理功能 ====================
     
     /// <summary>
+    /// 创建新的工作区
+    /// </summary>
+    private void CreateWorkspace() {
+        if (string.IsNullOrWhiteSpace(_newLevelName)) {
+            EditorUtility.DisplayDialog("错误", "关卡名称不能为空", "确定");
+            return;
+        }
+
+        var workspace = LevelEditorWorkspace.CreateNew(_newLevelName);
+        workspace.MapWidth = Mathf.Max(1, _newMapWidth);
+        workspace.MapDepth = Mathf.Max(1, _newMapDepth);
+        workspace.CellSize = Mathf.Max(0.1f, _newCellSize);
+        string assetPath = LevelEditorWorkspaceRepository.SaveAsNewAsset(workspace);
+        LoadWorkspaceAsset(assetPath);
+
+        Debug.Log($"[LevelEditor] 创建了新的工作区: {workspace.LevelName}");
+    }
+
+    /// <summary>
+    /// 从当前工作区生成或刷新白模
+    /// </summary>
+    private void OpenWorkspace() {
+        string initialDirectory = GetDefaultWorkspaceFolderPath();
+        string selectedPath = EditorUtility.OpenFilePanel("Open Workspace", initialDirectory, "asset");
+        if (string.IsNullOrWhiteSpace(selectedPath)) {
+            return;
+        }
+
+        if (!TryConvertAbsolutePathToAssetPath(selectedPath, out string assetPath)) {
+            EditorUtility.DisplayDialog("閿欒", "鍙兘鎵撳紑褰撳墠椤圭洰鍐呯殑 Workspace 璧勬簮", "纭畾");
+            return;
+        }
+
+        LoadWorkspaceAsset(assetPath);
+    }
+
+    private void LoadWorkspaceAsset(string assetPath) {
+        var asset = LevelEditorWorkspaceRepository.LoadAsset(assetPath);
+        if (asset == null) {
+            EditorUtility.DisplayDialog("閿欒", "鏃犳硶鍔犺浇鎸囧畾鐨?Workspace 璧勬簮", "纭畾");
+            return;
+        }
+
+        _session.SetWorkspaceAsset(asset);
+        _workspaceMapController = new WorkspaceMapController(_session.CurrentWorkspace);
+        _pendingPortalEntrancePosition = null;
+        SyncDraftFieldsFromWorkspace(_session.CurrentWorkspace);
+
+        if (_isEditMode || _whiteboxRoot != null) {
+            GenerateWhiteboxFromWorkspace();
+        }
+    }
+
+    private void SaveWorkspace() {
+        if (_session.CurrentWorkspaceAsset == null) {
+            EditorUtility.DisplayDialog("閿欒", "褰撳墠娌℃湁鍙繚瀛樼殑 Workspace 璧勬簮", "纭畾");
+            return;
+        }
+
+        LevelEditorWorkspaceRepository.Save(_session.CurrentWorkspaceAsset);
+    }
+
+    private void SyncWorkspaceNaming() {
+        if (_session.CurrentWorkspace == null) {
+            return;
+        }
+
+        _session.CurrentWorkspace.ExportName = _session.CurrentWorkspace.LevelName;
+        SyncDraftFieldsFromWorkspace(_session.CurrentWorkspace);
+        MarkCurrentWorkspaceDirty();
+    }
+
+    private void SyncDraftFieldsFromWorkspace(LevelEditorWorkspace workspace) {
+        if (workspace == null) {
+            return;
+        }
+
+        _newLevelName = workspace.LevelName;
+        _newMapWidth = Mathf.Max(1, workspace.MapWidth);
+        _newMapDepth = Mathf.Max(1, workspace.MapDepth);
+        _newCellSize = Mathf.Max(0.1f, workspace.CellSize);
+    }
+
+    private void GenerateWhiteboxFromWorkspace() {
+        var workspace = _session.CurrentWorkspace;
+        if (workspace == null) {
+            EditorUtility.DisplayDialog("错误", "请先创建工作区", "确定");
+            return;
+        }
+
+        _workspaceMapController = _workspaceMapController ?? new WorkspaceMapController(workspace);
+        _whiteboxRoot = WhiteboxGenerationService.GenerateIntoOpenScene(workspace, _visualConfig);
+        _isEditMode = true;
+        _pendingPortalEntrancePosition = null;
+        _session.StartEditing();
+        Debug.Log($"[LevelEditor] 已根据工作区生成白模: {workspace.LevelName}");
+    }
+
+    /// <summary>
+    /// 导出当前工作区为 LevelConfig
+    /// </summary>
+    private void ExportCurrentWorkspace() {
+        var workspace = _session.CurrentWorkspace;
+        if (workspace == null) {
+            EditorUtility.DisplayDialog("错误", "请先创建工作区", "确定");
+            return;
+        }
+
+        LevelValidationResult workspaceValidation = LevelValidationService.ValidateWorkspace(workspace);
+        if (!workspaceValidation.IsValid) {
+            ShowValidationDialog("Workspace validation failed", workspaceValidation);
+            return;
+        }
+
+        LevelConfig transientConfig = LevelConfigExportService.BuildTransientConfig(workspace);
+        try {
+            LevelValidationResult configValidation = LevelValidationService.Validate(transientConfig);
+            if (!configValidation.IsValid) {
+                ShowValidationDialog("Export validation failed", configValidation);
+                return;
+            }
+        } finally {
+            DestroyImmediate(transientConfig);
+        }
+
+        if (LevelConfigExportService.AssetExists(workspace)
+            && !EditorUtility.DisplayDialog(
+                "Confirm overwrite",
+                $"Overwrite {LevelConfigExportService.BuildAssetName(workspace)}?",
+                "Overwrite",
+                "Cancel")) {
+            return;
+        }
+
+        _config = LevelConfigExportService.Export(workspace);
+        _session.SetCurrentLevel(_config);
+
+        Debug.Log($"[LevelEditor] 已导出配置: {_config.name}");
+        EditorUtility.DisplayDialog("成功", $"已导出 {_config.name}", "确定");
+        Selection.activeObject = _config;
+        EditorGUIUtility.PingObject(_config);
+    }
+
+    /// <summary>
     /// 创建新的关卡配置
     /// </summary>
+    private void MarkCurrentWorkspaceDirty() {
+        if (_session.CurrentWorkspaceAsset != null) {
+            EditorUtility.SetDirty(_session.CurrentWorkspaceAsset);
+        }
+    }
+
+    private static void ShowValidationDialog(string title, LevelValidationResult result) {
+        if (result == null || result.IsValid) {
+            return;
+        }
+
+        EditorUtility.DisplayDialog(title, string.Join("\n", result.Errors), "OK");
+    }
+
+    private static bool TryConvertAbsolutePathToAssetPath(string absolutePath, out string assetPath) {
+        assetPath = null;
+        if (string.IsNullOrWhiteSpace(absolutePath)) {
+            return false;
+        }
+
+        string projectAssetsPath = Path.GetFullPath(Application.dataPath).Replace("\\", "/");
+        string normalizedAbsolutePath = Path.GetFullPath(absolutePath).Replace("\\", "/");
+        if (!normalizedAbsolutePath.StartsWith(projectAssetsPath, StringComparison.OrdinalIgnoreCase)) {
+            return false;
+        }
+
+        assetPath = "Assets" + normalizedAbsolutePath.Substring(projectAssetsPath.Length);
+        return true;
+    }
+
+    private static string GetDefaultWorkspaceFolderPath() {
+        string relativeFolder = LevelEditorWorkspaceRepository.DefaultRootFolder.Replace('/', Path.DirectorySeparatorChar);
+        string projectRoot = Directory.GetParent(Application.dataPath)?.FullName ?? Directory.GetCurrentDirectory();
+        string fullPath = Path.Combine(projectRoot, relativeFolder);
+        return Directory.Exists(fullPath) ? fullPath : Application.dataPath;
+    }
+
+    private string FormatPendingPortalEntrance() {
+        return _pendingPortalEntrancePosition.HasValue
+            ? _pendingPortalEntrancePosition.Value.ToString()
+            : "<none>";
+    }
+
+    private string GetSelectedWaveLabel() {
+        if (_session.CurrentWorkspace == null
+            || _selectedWaveIndex < 0
+            || _selectedWaveIndex >= _session.CurrentWorkspace.Waves.Count
+            || _session.CurrentWorkspace.Waves[_selectedWaveIndex] == null) {
+            return "<none>";
+        }
+
+        return _session.CurrentWorkspace.Waves[_selectedWaveIndex].waveId;
+    }
+
+    private void DrawSelectedWavePathOverlay() {
+        if (!TryGetSelectedWave(out WaveDefinition wave) || wave.path == null || wave.path.Count == 0) {
+            return;
+        }
+
+        Color previousColor = Handles.color;
+        Handles.color = new Color(1f, 0.85f, 0.2f, 0.95f);
+
+        Vector3? previousPoint = null;
+        for (int i = 0; i < wave.path.Count; i++) {
+            PathNodeDefinition node = wave.path[i];
+            if (node == null) {
+                continue;
+            }
+
+            Vector3 point = GetPathNodeWorldPosition(node);
+            Handles.DrawSolidDisc(point, Vector3.up, Mathf.Max(0.08f, _session.CurrentWorkspace.CellSize * 0.12f));
+            Handles.Label(point + Vector3.up * 0.12f, $"P{i + 1}");
+
+            if (previousPoint.HasValue) {
+                Handles.DrawAAPolyLine(4f, previousPoint.Value, point);
+            }
+
+            previousPoint = point;
+        }
+
+        Handles.color = previousColor;
+    }
+
+    private bool TryGetSelectedWave(out WaveDefinition wave) {
+        wave = null;
+        if (_session.CurrentWorkspace == null
+            || _selectedWaveIndex < 0
+            || _selectedWaveIndex >= _session.CurrentWorkspace.Waves.Count) {
+            return false;
+        }
+
+        wave = _session.CurrentWorkspace.Waves[_selectedWaveIndex];
+        return wave != null;
+    }
+
+    private Vector3 GetPathNodeWorldPosition(PathNodeDefinition node) {
+        float cellSize = _session.CurrentWorkspace != null ? _session.CurrentWorkspace.CellSize : 1f;
+        float height = 0.25f;
+
+        if (_session.CurrentWorkspace != null && node != null) {
+            height += _session.CurrentWorkspace.GetTileOverride(node.x, node.y).heightLevel * cellSize;
+        }
+
+        return new Vector3(node.x * cellSize, height, node.y * cellSize);
+    }
+
     private void CreateLevelConfig() {
         // 验证名称
         if (string.IsNullOrWhiteSpace(_newLevelName)) {
@@ -471,6 +1135,7 @@ public class LevelEditorWindow : EditorWindow {
         
         // 自动分配到编辑器
         _config = newConfig;
+        _session.SetCurrentLevel(_config);
         
         Debug.Log($"[LevelEditor] 创建了新的关卡配置: {configPath}");
         EditorUtility.DisplayDialog("成功", $"关卡配置 {_newLevelName} 已创建", "确定");
@@ -484,91 +1149,16 @@ public class LevelEditorWindow : EditorWindow {
     /// 构建场景
     /// </summary>
     private void BuildScene() {
-        if (_config == null || _visualConfig == null) {
-            EditorUtility.DisplayDialog("错误", "请先配置 LevelConfig 和 GridVisualConfig", "确定");
-            return;
-        }
-        
-        // 检查配置有效性
-        if (!_config.Validate()) {
-            EditorUtility.DisplayDialog("错误", "LevelConfig 配置无效，请检查 Console", "确定");
-            return;
-        }
-        
         // 保存当前场景
         if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) {
             return;
         }
-        
-        // 创建新场景
-        Scene newScene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-        
-        // 创建 GameManager
-        GameObject gameManagerObj = new GameObject("GameManager");
-        ArknightsLite.GameMain gameMain = gameManagerObj.AddComponent<ArknightsLite.GameMain>();
-        
-        // 使用反射设置私有字段
-        var gameMainType = typeof(ArknightsLite.GameMain);
-        var levelConfigField = gameMainType.GetField("_levelConfig", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        if (levelConfigField != null) {
-            levelConfigField.SetValue(gameMain, _config);
-        }
-        
-        // 创建 GridVisualizer
-        GameObject gridVisualizerObj = new GameObject("GridVisualizer");
-        ArknightsLite.View.GridRenderer gridRenderer = gridVisualizerObj.AddComponent<ArknightsLite.View.GridRenderer>();
-        
-        // 使用反射设置私有字段
-        var gridRendererType = typeof(ArknightsLite.View.GridRenderer);
-        var visualConfigField = gridRendererType.GetField("_visualConfig", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        var levelConfigField2 = gridRendererType.GetField("_levelConfig", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        if (visualConfigField != null) {
-            visualConfigField.SetValue(gridRenderer, _visualConfig);
-        }
-        if (levelConfigField2 != null) {
-            levelConfigField2.SetValue(gridRenderer, _config);
-        }
-        
-        // 创建主相机
-        GameObject cameraObj = new GameObject("Main Camera");
-        Camera camera = cameraObj.AddComponent<Camera>();
-        cameraObj.tag = "MainCamera";
-        cameraObj.AddComponent<AudioListener>();
-        
-        // 设置相机位置（俯视角度）
-        float mapCenterX = _config.mapWidth * _config.cellSize * 0.5f;
-        float mapCenterZ = _config.mapDepth * _config.cellSize * 0.5f;
-        float mapMaxSize = Mathf.Max(_config.mapWidth, _config.mapDepth) * _config.cellSize;
-        
-        cameraObj.transform.position = new Vector3(mapCenterX, mapMaxSize * 0.8f, mapCenterZ - mapMaxSize * 0.5f);
-        cameraObj.transform.rotation = Quaternion.Euler(45, 0, 0);
-        
-        // 创建方向光
-        GameObject lightObj = new GameObject("Directional Light");
-        Light light = lightObj.AddComponent<Light>();
-        light.type = LightType.Directional;
-        lightObj.transform.rotation = Quaternion.Euler(50, -30, 0);
-        
-        // 保存场景
-        string scenePath = $"Assets/Scenes/Levels/{_config.name}.unity";
-        
-        // 确保目录存在
-        string sceneDir = Path.GetDirectoryName(scenePath);
-        if (!Directory.Exists(sceneDir)) {
-            Directory.CreateDirectory(sceneDir);
-        }
-        
-        bool saved = EditorSceneManager.SaveScene(newScene, scenePath);
-        
-        if (saved) {
+
+        if (LevelSceneBuilder.TryBuild(_config, _visualConfig, out string scenePath, out string errorMessage)) {
             Debug.Log($"[LevelEditor] 场景已保存到: {scenePath}");
-            
-            // 将场景添加到构建设置（可选）
-            AddSceneToBuildSettings(scenePath);
-            
             EditorUtility.DisplayDialog("成功", $"场景已创建并保存到 {scenePath}", "确定");
         } else {
-            EditorUtility.DisplayDialog("错误", "场景保存失败", "确定");
+            EditorUtility.DisplayDialog("错误", errorMessage, "确定");
         }
     }
     
@@ -576,62 +1166,15 @@ public class LevelEditorWindow : EditorWindow {
     /// 从当前场景加载配置
     /// </summary>
     private void LoadFromScene() {
-        // 查找 GameMain 组件
-        ArknightsLite.GameMain gameMain = UnityEngine.Object.FindObjectOfType<ArknightsLite.GameMain>();
-        
-        if (gameMain == null) {
-            EditorUtility.DisplayDialog("错误", "当前场景中未找到 GameMain 组件", "确定");
-            return;
-        }
-        
-        // 使用反射读取私有字段
-        var gameMainType = typeof(ArknightsLite.GameMain);
-        var levelConfigField = gameMainType.GetField("_levelConfig", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        
-        if (levelConfigField != null) {
-            LevelConfig config = levelConfigField.GetValue(gameMain) as LevelConfig;
-            
-            if (config != null) {
-                _config = config;
-                Debug.Log($"[LevelEditor] 已从场景加载配置: {config.name}");
-                EditorUtility.DisplayDialog("成功", $"已加载配置: {config.name}", "确定");
-            } else {
-                EditorUtility.DisplayDialog("错误", "GameMain 中的 LevelConfig 为空", "确定");
-            }
+        if (LevelSceneLoader.TryLoadFromOpenScene(out LevelConfig config, out GridVisualConfig visualConfig, out string errorMessage)) {
+            _config = config;
+            _visualConfig = visualConfig;
+            _session.SetCurrentLevel(_config);
+
+            Debug.Log($"[LevelEditor] 已从场景加载配置: {config.name}");
+            EditorUtility.DisplayDialog("成功", $"已加载配置: {config.name}", "确定");
         } else {
-            EditorUtility.DisplayDialog("错误", "无法读取 GameMain 的 _levelConfig 字段", "确定");
-        }
-        
-        // 同时尝试读取 GridRenderer 的配置
-        ArknightsLite.View.GridRenderer gridRenderer = UnityEngine.Object.FindObjectOfType<ArknightsLite.View.GridRenderer>();
-        if (gridRenderer != null) {
-            var gridRendererType = typeof(ArknightsLite.View.GridRenderer);
-            var visualConfigField = gridRendererType.GetField("_visualConfig", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            
-            if (visualConfigField != null) {
-                GridVisualConfig visualConfig = visualConfigField.GetValue(gridRenderer) as GridVisualConfig;
-                if (visualConfig != null) {
-                    _visualConfig = visualConfig;
-                    Debug.Log($"[LevelEditor] 已从场景加载视觉配置: {visualConfig.name}");
-                }
-            }
-        }
-    }
-    
-    /// <summary>
-    /// 将场景添加到构建设置
-    /// </summary>
-    private void AddSceneToBuildSettings(string scenePath) {
-        // 获取当前的场景列表
-        var scenes = new System.Collections.Generic.List<EditorBuildSettingsScene>(EditorBuildSettings.scenes);
-        
-        // 检查场景是否已存在
-        bool exists = scenes.Exists(s => s.path == scenePath);
-        
-        if (!exists) {
-            scenes.Add(new EditorBuildSettingsScene(scenePath, true));
-            EditorBuildSettings.scenes = scenes.ToArray();
-            Debug.Log($"[LevelEditor] 场景已添加到构建设置: {scenePath}");
+            EditorUtility.DisplayDialog("错误", errorMessage, "确定");
         }
     }
 }

@@ -28,19 +28,19 @@ MonoBehaviour:
     deployTag: All
   - x: 1
     z: 2
-    tileType: 0
+    tileType: 1
     heightLevel: 0
     walkable: 1
     deployTag: All
   - x: 2
     z: 2
-    tileType: 0
+    tileType: 1
     heightLevel: 0
     walkable: 1
     deployTag: All
   - x: 2
     z: 3
-    tileType: 0
+    tileType: 1
     heightLevel: 0
     walkable: 1
     deployTag: All
@@ -52,25 +52,25 @@ MonoBehaviour:
     deployTag: All
   - x: 3
     z: 4
-    tileType: 0
+    tileType: 1
     heightLevel: 0
     walkable: 1
     deployTag: All
   - x: 4
     z: 4
-    tileType: 0
+    tileType: 1
     heightLevel: 0
     walkable: 1
     deployTag: All
   - x: 4
     z: 5
-    tileType: 0
+    tileType: 1
     heightLevel: 0
     walkable: 1
     deployTag: All
   - x: 5
     z: 5
-    tileType: 0
+    tileType: 1
     heightLevel: 0
     walkable: 1
     deployTag: All
@@ -116,12 +116,6 @@ MonoBehaviour:
     heightLevel: 0
     walkable: 1
     deployTag: All
-  - x: 0
-    z: 1
-    tileType: 0
-    heightLevel: 0
-    walkable: 1
-    deployTag: All
   - x: 2
     z: 1
     tileType: 1
@@ -135,12 +129,6 @@ MonoBehaviour:
     walkable: 1
     deployTag: All
   - x: 3
-    z: 2
-    tileType: 1
-    heightLevel: 0
-    walkable: 1
-    deployTag: All
-  - x: 0
     z: 2
     tileType: 1
     heightLevel: 0
@@ -260,12 +248,6 @@ MonoBehaviour:
     heightLevel: 0
     walkable: 1
     deployTag: All
-  - x: 1
-    z: 0
-    tileType: 1
-    heightLevel: 0
-    walkable: 1
-    deployTag: All
   - x: 7
     z: 5
     tileType: 1
@@ -298,6 +280,108 @@ MonoBehaviour:
     deployTag: All
   - x: 8
     z: 6
+    tileType: 1
+    heightLevel: 0
+    walkable: 1
+    deployTag: All
+  - x: 0
+    z: 5
+    tileType: 1
+    heightLevel: 0
+    walkable: 1
+    deployTag: All
+  - x: 0
+    z: 4
+    tileType: 1
+    heightLevel: 0
+    walkable: 1
+    deployTag: All
+  - x: 0
+    z: 7
+    tileType: 1
+    heightLevel: 0
+    walkable: 1
+    deployTag: All
+  - x: 5
+    z: 0
+    tileType: 1
+    heightLevel: 0
+    walkable: 1
+    deployTag: All
+  - x: 0
+    z: 0
+    tileType: 1
+    heightLevel: 0
+    walkable: 1
+    deployTag: All
+  - x: 1
+    z: 0
+    tileType: 0
+    heightLevel: 0
+    walkable: 1
+    deployTag: All
+  - x: 3
+    z: 0
+    tileType: 1
+    heightLevel: 0
+    walkable: 1
+    deployTag: All
+  - x: 4
+    z: 0
+    tileType: 1
+    heightLevel: 0
+    walkable: 1
+    deployTag: All
+  - x: 6
+    z: 0
+    tileType: 1
+    heightLevel: 0
+    walkable: 1
+    deployTag: All
+  - x: 7
+    z: 0
+    tileType: 1
+    heightLevel: 0
+    walkable: 1
+    deployTag: All
+  - x: 8
+    z: 0
+    tileType: 1
+    heightLevel: 0
+    walkable: 1
+    deployTag: All
+  - x: 0
+    z: 2
+    tileType: 0
+    heightLevel: 0
+    walkable: 1
+    deployTag: All
+  - x: 4
+    z: 1
+    tileType: 1
+    heightLevel: 0
+    walkable: 1
+    deployTag: All
+  - x: 0
+    z: 6
+    tileType: 1
+    heightLevel: 0
+    walkable: 1
+    deployTag: All
+  - x: 1
+    z: 5
+    tileType: 1
+    heightLevel: 0
+    walkable: 1
+    deployTag: All
+  - x: 0
+    z: 1
+    tileType: 0
+    heightLevel: 0
+    walkable: 1
+    deployTag: All
+  - x: 5
+    z: 1
     tileType: 1
     heightLevel: 0
     walkable: 1
