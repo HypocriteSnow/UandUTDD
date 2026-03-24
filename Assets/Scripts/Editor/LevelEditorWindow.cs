@@ -19,7 +19,10 @@ public class LevelEditorWindow : EditorWindow {
     private enum WorkspaceSceneTool {
         Terrain,
         Spawn,
-        Goal
+        Goal,
+        PortalEntrance,
+        PortalExit,
+        PathEdit
     }
     
     // ==================== 配置引用 ====================
@@ -45,6 +48,7 @@ public class LevelEditorWindow : EditorWindow {
     private int _brushHeight = 0;
     private bool _isPainting = false;
     private WorkspaceSceneTool _workspaceSceneTool = WorkspaceSceneTool.Terrain;
+    private Vector2Int? _pendingPortalEntrancePosition;
     
     
     // ==================== 关卡管理 ====================
@@ -285,7 +289,7 @@ public class LevelEditorWindow : EditorWindow {
         if (_brushEnabled) {
             _workspaceSceneTool = (WorkspaceSceneTool)GUILayout.Toolbar(
                 (int)_workspaceSceneTool,
-                new[] { "Terrain", "Spawn", "Goal" }
+                new[] { "Terrain", "Spawn", "Goal", "Portal In", "Portal Out", "Path" }
             );
 
             DrawWorkspaceToolHelp();
@@ -318,19 +322,36 @@ public class LevelEditorWindow : EditorWindow {
 
         switch (_workspaceSceneTool) {
             case WorkspaceSceneTool.Spawn:
-                EditorGUILayout.HelpBox($"Click a tile in SceneView to move {_session.CurrentWorkspace.SpawnId}. Hotkey: 5", MessageType.Info);
-                EditorGUILayout.LabelField($"Spawn Tile: {_session.CurrentWorkspace.GetResolvedSpawnPoint()}");
+                EditorGUILayout.HelpBox("Click a tile in SceneView to place a spawn marker. Hotkey: 5", MessageType.Info);
+                EditorGUILayout.LabelField($"Spawn Markers: {_session.CurrentWorkspace.SpawnMarkers.Count}");
                 break;
 
             case WorkspaceSceneTool.Goal:
-                EditorGUILayout.HelpBox($"Click a tile in SceneView to move {_session.CurrentWorkspace.GoalId}. Hotkey: 6", MessageType.Info);
-                EditorGUILayout.LabelField($"Goal Tile: {_session.CurrentWorkspace.GetResolvedGoalPoint()}");
+                EditorGUILayout.HelpBox("Click a tile in SceneView to place a goal marker. Hotkey: 6", MessageType.Info);
+                EditorGUILayout.LabelField($"Goal Markers: {_session.CurrentWorkspace.GoalMarkers.Count}");
+                break;
+
+            case WorkspaceSceneTool.PortalEntrance:
+                EditorGUILayout.HelpBox("Click a tile in SceneView to capture the next portal entrance. Hotkey: 7", MessageType.Info);
+                EditorGUILayout.LabelField($"Pending Portal Entrance: {FormatPendingPortalEntrance()}");
+                break;
+
+            case WorkspaceSceneTool.PortalExit:
+                EditorGUILayout.HelpBox("Click a tile in SceneView to finish the pending portal pair. Hotkey: 8", MessageType.Info);
+                EditorGUILayout.LabelField($"Pending Portal Entrance: {FormatPendingPortalEntrance()}");
+                EditorGUILayout.LabelField($"Portal Pairs: {_session.CurrentWorkspace.PortalPairs.Count}");
+                break;
+
+            case WorkspaceSceneTool.PathEdit:
+                EditorGUILayout.HelpBox("Scene path editing is reserved for the selected wave. Hotkey: 9", MessageType.Info);
+                EditorGUILayout.LabelField($"Selected Wave: {GetSelectedWaveLabel()}");
                 break;
 
             default:
                 if (_session.CurrentWorkspace != null) {
-                    EditorGUILayout.LabelField($"Spawn Tile: {_session.CurrentWorkspace.GetResolvedSpawnPoint()}");
-                    EditorGUILayout.LabelField($"Goal Tile: {_session.CurrentWorkspace.GetResolvedGoalPoint()}");
+                    EditorGUILayout.LabelField($"Spawn Markers: {_session.CurrentWorkspace.SpawnMarkers.Count}");
+                    EditorGUILayout.LabelField($"Goal Markers: {_session.CurrentWorkspace.GoalMarkers.Count}");
+                    EditorGUILayout.LabelField($"Portal Pairs: {_session.CurrentWorkspace.PortalPairs.Count}");
                 }
                 break;
         }
@@ -401,6 +422,7 @@ public class LevelEditorWindow : EditorWindow {
         
         _isEditMode = false;
         _brushEnabled = false;
+        _pendingPortalEntrancePosition = null;
         _session.StopEditing();
         
         Debug.Log("[LevelEditor] 退出编辑模式，配置已保存");
@@ -536,6 +558,27 @@ public class LevelEditorWindow : EditorWindow {
                     Repaint();
                     e.Use();
                     break;
+
+                case KeyCode.Alpha7:
+                case KeyCode.Keypad7:
+                    _workspaceSceneTool = WorkspaceSceneTool.PortalEntrance;
+                    Repaint();
+                    e.Use();
+                    break;
+
+                case KeyCode.Alpha8:
+                case KeyCode.Keypad8:
+                    _workspaceSceneTool = WorkspaceSceneTool.PortalExit;
+                    Repaint();
+                    e.Use();
+                    break;
+
+                case KeyCode.Alpha9:
+                case KeyCode.Keypad9:
+                    _workspaceSceneTool = WorkspaceSceneTool.PathEdit;
+                    Repaint();
+                    e.Use();
+                    break;
             }
         }
     }
@@ -583,15 +626,45 @@ public class LevelEditorWindow : EditorWindow {
                     _workspaceMapController = _workspaceMapController ?? new WorkspaceMapController(_session.CurrentWorkspace);
                     switch (_workspaceSceneTool) {
                         case WorkspaceSceneTool.Spawn:
-                            Undo.RecordObject(authoring, "Move Workspace Spawn");
-                            _workspaceMapController.SetSpawnPoint(authoring.X, authoring.Z);
+                            Undo.RecordObject(authoring, "Place Workspace Spawn Marker");
+                            _workspaceMapController.PlaceSpawnMarker(authoring.X, authoring.Z);
                             MarkCurrentWorkspaceDirty();
                             break;
 
                         case WorkspaceSceneTool.Goal:
-                            Undo.RecordObject(authoring, "Move Workspace Goal");
-                            _workspaceMapController.SetGoalPoint(authoring.X, authoring.Z);
+                            Undo.RecordObject(authoring, "Place Workspace Goal Marker");
+                            _workspaceMapController.PlaceGoalMarker(authoring.X, authoring.Z);
                             MarkCurrentWorkspaceDirty();
+                            break;
+
+                        case WorkspaceSceneTool.PortalEntrance:
+                            _pendingPortalEntrancePosition = new Vector2Int(authoring.X, authoring.Z);
+                            Repaint();
+                            break;
+
+                        case WorkspaceSceneTool.PortalExit:
+                            if (!_pendingPortalEntrancePosition.HasValue) {
+                                Debug.LogWarning("[LevelEditor] Select a portal entrance before placing a portal exit.");
+                                break;
+                            }
+
+                            if (_pendingPortalEntrancePosition.Value.x == authoring.X
+                                && _pendingPortalEntrancePosition.Value.y == authoring.Z) {
+                                Debug.LogWarning("[LevelEditor] Portal entrance and exit must be placed on different tiles.");
+                                break;
+                            }
+
+                            Undo.RecordObject(authoring, "Place Workspace Portal Pair");
+                            _workspaceMapController.PlacePortalPair(
+                                _pendingPortalEntrancePosition.Value,
+                                new Vector2Int(authoring.X, authoring.Z));
+                            _pendingPortalEntrancePosition = null;
+                            MarkCurrentWorkspaceDirty();
+                            Repaint();
+                            break;
+
+                        case WorkspaceSceneTool.PathEdit:
+                            Repaint();
                             break;
 
                         default:
@@ -629,9 +702,8 @@ public class LevelEditorWindow : EditorWindow {
         style.fontSize = 14;
         style.normal.textColor = Color.white;
         
-        string info = $"笔刷: {_brushType} (高度 {_brushHeight})\n按 1-4 切换类型";
-        info = GetSceneToolOverlayText();
-        GUILayout.BeginArea(new Rect(10, 10, 300, 72));
+        string info = GetSceneToolOverlayText();
+        GUILayout.BeginArea(new Rect(10, 10, 320, 88));
         GUILayout.Box(info, style);
         GUILayout.EndArea();
         
@@ -648,13 +720,22 @@ public class LevelEditorWindow : EditorWindow {
 
         switch (_workspaceSceneTool) {
             case WorkspaceSceneTool.Spawn:
-                return $"Tool: Spawn\nClick to move {_session.CurrentWorkspace.SpawnId}\nHotkey: 5";
+                return "Tool: Spawn\nClick to place a spawn marker\nHotkey: 5";
 
             case WorkspaceSceneTool.Goal:
-                return $"Tool: Goal\nClick to move {_session.CurrentWorkspace.GoalId}\nHotkey: 6";
+                return "Tool: Goal\nClick to place a goal marker\nHotkey: 6";
+
+            case WorkspaceSceneTool.PortalEntrance:
+                return $"Tool: Portal In\nPending: {FormatPendingPortalEntrance()}\nHotkey: 7";
+
+            case WorkspaceSceneTool.PortalExit:
+                return $"Tool: Portal Out\nPending: {FormatPendingPortalEntrance()}\nHotkey: 8";
+
+            case WorkspaceSceneTool.PathEdit:
+                return $"Tool: Path\nSelected Wave: {GetSelectedWaveLabel()}\nHotkey: 9";
 
             default:
-                return $"Tool: Terrain / {_brushType}\nHeight: {_brushHeight}\nHotkeys: 1-4 terrain, 5 spawn, 6 goal";
+                return $"Tool: Terrain / {_brushType}\nHeight: {_brushHeight}\nHotkeys: 1-4 terrain, 5 spawn, 6 goal, 7-9 semantic";
         }
     }
 
@@ -716,6 +797,7 @@ public class LevelEditorWindow : EditorWindow {
 
         _session.SetWorkspaceAsset(asset);
         _workspaceMapController = new WorkspaceMapController(_session.CurrentWorkspace);
+        _pendingPortalEntrancePosition = null;
         _newLevelName = _session.CurrentWorkspace?.LevelName ?? _newLevelName;
 
         if (_isEditMode || _whiteboxRoot != null) {
@@ -751,6 +833,7 @@ public class LevelEditorWindow : EditorWindow {
         _workspaceMapController = _workspaceMapController ?? new WorkspaceMapController(workspace);
         _whiteboxRoot = WhiteboxGenerationService.GenerateIntoOpenScene(workspace, _visualConfig);
         _isEditMode = true;
+        _pendingPortalEntrancePosition = null;
         _session.StartEditing();
         Debug.Log($"[LevelEditor] 已根据工作区生成白模: {workspace.LevelName}");
     }
@@ -804,6 +887,23 @@ public class LevelEditorWindow : EditorWindow {
         string projectRoot = Directory.GetParent(Application.dataPath)?.FullName ?? Directory.GetCurrentDirectory();
         string fullPath = Path.Combine(projectRoot, relativeFolder);
         return Directory.Exists(fullPath) ? fullPath : Application.dataPath;
+    }
+
+    private string FormatPendingPortalEntrance() {
+        return _pendingPortalEntrancePosition.HasValue
+            ? _pendingPortalEntrancePosition.Value.ToString()
+            : "<none>";
+    }
+
+    private string GetSelectedWaveLabel() {
+        if (_session.CurrentWorkspace == null
+            || _selectedWaveIndex < 0
+            || _selectedWaveIndex >= _session.CurrentWorkspace.Waves.Count
+            || _session.CurrentWorkspace.Waves[_selectedWaveIndex] == null) {
+            return "<none>";
+        }
+
+        return _session.CurrentWorkspace.Waves[_selectedWaveIndex].waveId;
     }
 
     private void CreateLevelConfig() {

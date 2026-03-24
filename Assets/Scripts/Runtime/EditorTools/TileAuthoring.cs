@@ -15,8 +15,12 @@ using ArknightsLite.Model;
 public class TileAuthoring : MonoBehaviour {
     private const string SpawnMarkerVisualName = "SpawnMarkerVisual";
     private const string GoalMarkerVisualName = "GoalMarkerVisual";
+    private const string PortalEntranceVisualName = "PortalEntranceVisual";
+    private const string PortalExitVisualName = "PortalExitVisual";
     private static Material s_spawnMarkerVisualMaterial;
     private static Material s_goalMarkerVisualMaterial;
+    private static Material s_portalEntranceVisualMaterial;
+    private static Material s_portalExitVisualMaterial;
 
     [Header("坐标信息（只读）")]
     [SerializeField] private int _x;
@@ -282,6 +286,22 @@ public class TileAuthoring : MonoBehaviour {
             new Vector3(0f, resolvedCellSize * 0.22f, 0f),
             GetGoalMarkerVisualMaterial()
         );
+        EnsureMarkerVisual(
+            PortalEntranceVisualName,
+            HasPortalEntranceMarker,
+            PrimitiveType.Cylinder,
+            new Vector3(resolvedCellSize * 0.2f, resolvedCellSize * 0.05f, resolvedCellSize * 0.2f),
+            new Vector3(0f, resolvedCellSize * 0.34f, 0f),
+            GetPortalEntranceVisualMaterial()
+        );
+        EnsureMarkerVisual(
+            PortalExitVisualName,
+            HasPortalExitMarker,
+            PrimitiveType.Cylinder,
+            new Vector3(resolvedCellSize * 0.2f, resolvedCellSize * 0.05f, resolvedCellSize * 0.2f),
+            new Vector3(0f, resolvedCellSize * 0.56f, 0f),
+            GetPortalExitVisualMaterial()
+        );
     }
 
     private void EnsureMarkerVisual(string markerName, bool shouldExist, PrimitiveType primitiveType, Vector3 worldScale, Vector3 worldOffset, Material material) {
@@ -356,6 +376,22 @@ public class TileAuthoring : MonoBehaviour {
         return s_goalMarkerVisualMaterial;
     }
 
+    private static Material GetPortalEntranceVisualMaterial() {
+        if (s_portalEntranceVisualMaterial == null) {
+            s_portalEntranceVisualMaterial = CreateMarkerVisualMaterial(new Color(1f, 0.75f, 0.2f));
+        }
+
+        return s_portalEntranceVisualMaterial;
+    }
+
+    private static Material GetPortalExitVisualMaterial() {
+        if (s_portalExitVisualMaterial == null) {
+            s_portalExitVisualMaterial = CreateMarkerVisualMaterial(new Color(0.45f, 0.95f, 0.75f));
+        }
+
+        return s_portalExitVisualMaterial;
+    }
+
     private static Material CreateMarkerVisualMaterial(Color color) {
         Shader shader = Shader.Find("Universal Render Pipeline/Lit");
         if (shader == null) {
@@ -396,6 +432,10 @@ public class TileAuthoring : MonoBehaviour {
     public bool HasSpawnMarker => _hasSpawnMarker || (config != null && config.IsSpawnPoint(_x, _z));
 
     public bool HasGoalMarker => _hasGoalMarker || (config != null && config.IsGoalPoint(_x, _z));
+
+    public bool HasPortalEntranceMarker => ContainsSemanticLabelPrefix("IN");
+
+    public bool HasPortalExitMarker => ContainsSemanticLabelPrefix("OUT");
 
     public string SpawnMarkerId => string.IsNullOrWhiteSpace(_spawnMarkerId) ? "spawn_01" : _spawnMarkerId;
 
@@ -494,6 +534,21 @@ public class TileAuthoring : MonoBehaviour {
     private static bool IsGoalSemanticLabel(string semanticLabel) {
         return semanticLabel.StartsWith("B", StringComparison.OrdinalIgnoreCase)
             || string.Equals(semanticLabel, "goal_01", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool ContainsSemanticLabelPrefix(string prefix) {
+        if (_semanticLabels == null || string.IsNullOrWhiteSpace(prefix)) {
+            return false;
+        }
+
+        foreach (string semanticLabel in _semanticLabels) {
+            if (!string.IsNullOrWhiteSpace(semanticLabel)
+                && semanticLabel.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
 #endif
