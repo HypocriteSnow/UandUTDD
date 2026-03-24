@@ -343,7 +343,7 @@ public class LevelEditorWindow : EditorWindow {
                 break;
 
             case WorkspaceSceneTool.PathEdit:
-                EditorGUILayout.HelpBox("Scene path editing is reserved for the selected wave. Hotkey: 9", MessageType.Info);
+                EditorGUILayout.HelpBox("Click a tile in SceneView to add or remove a node on the selected wave. Hotkey: 9", MessageType.Info);
                 EditorGUILayout.LabelField($"Selected Wave: {GetSelectedWaveLabel()}");
                 break;
 
@@ -505,6 +505,7 @@ public class LevelEditorWindow : EditorWindow {
         
         // 显示笔刷信息
         DrawBrushInfo();
+        DrawSelectedWavePathOverlay();
     }
     
     /// <summary>
@@ -664,6 +665,13 @@ public class LevelEditorWindow : EditorWindow {
                             break;
 
                         case WorkspaceSceneTool.PathEdit:
+                            if (PathEditorPanel.TogglePathNodeForSelectedWave(
+                                _session.CurrentWorkspace,
+                                _selectedWaveIndex,
+                                new Vector2Int(authoring.X, authoring.Z))) {
+                                MarkCurrentWorkspaceDirty();
+                            }
+
                             Repaint();
                             break;
 
@@ -732,7 +740,7 @@ public class LevelEditorWindow : EditorWindow {
                 return $"Tool: Portal Out\nPending: {FormatPendingPortalEntrance()}\nHotkey: 8";
 
             case WorkspaceSceneTool.PathEdit:
-                return $"Tool: Path\nSelected Wave: {GetSelectedWaveLabel()}\nHotkey: 9";
+                return $"Tool: Path\nClick to add/remove nodes on {GetSelectedWaveLabel()}\nHotkey: 9";
 
             default:
                 return $"Tool: Terrain / {_brushType}\nHeight: {_brushHeight}\nHotkeys: 1-4 terrain, 5 spawn, 6 goal, 7-9 semantic";
@@ -904,6 +912,58 @@ public class LevelEditorWindow : EditorWindow {
         }
 
         return _session.CurrentWorkspace.Waves[_selectedWaveIndex].waveId;
+    }
+
+    private void DrawSelectedWavePathOverlay() {
+        if (!TryGetSelectedWave(out WaveDefinition wave) || wave.path == null || wave.path.Count == 0) {
+            return;
+        }
+
+        Color previousColor = Handles.color;
+        Handles.color = new Color(1f, 0.85f, 0.2f, 0.95f);
+
+        Vector3? previousPoint = null;
+        for (int i = 0; i < wave.path.Count; i++) {
+            PathNodeDefinition node = wave.path[i];
+            if (node == null) {
+                continue;
+            }
+
+            Vector3 point = GetPathNodeWorldPosition(node);
+            Handles.DrawSolidDisc(point, Vector3.up, Mathf.Max(0.08f, _session.CurrentWorkspace.CellSize * 0.12f));
+            Handles.Label(point + Vector3.up * 0.12f, $"P{i + 1}");
+
+            if (previousPoint.HasValue) {
+                Handles.DrawAAPolyLine(4f, previousPoint.Value, point);
+            }
+
+            previousPoint = point;
+        }
+
+        Handles.color = previousColor;
+    }
+
+    private bool TryGetSelectedWave(out WaveDefinition wave) {
+        wave = null;
+        if (_session.CurrentWorkspace == null
+            || _selectedWaveIndex < 0
+            || _selectedWaveIndex >= _session.CurrentWorkspace.Waves.Count) {
+            return false;
+        }
+
+        wave = _session.CurrentWorkspace.Waves[_selectedWaveIndex];
+        return wave != null;
+    }
+
+    private Vector3 GetPathNodeWorldPosition(PathNodeDefinition node) {
+        float cellSize = _session.CurrentWorkspace != null ? _session.CurrentWorkspace.CellSize : 1f;
+        float height = 0.25f;
+
+        if (_session.CurrentWorkspace != null && node != null) {
+            height += _session.CurrentWorkspace.GetTileOverride(node.x, node.y).heightLevel * cellSize;
+        }
+
+        return new Vector3(node.x * cellSize, height, node.y * cellSize);
     }
 
     private void CreateLevelConfig() {
