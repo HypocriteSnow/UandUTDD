@@ -46,6 +46,10 @@ namespace ArknightsLite.Editor {
                     }
                 } else {
                     EditorGUILayout.HelpBox("当前格子由工作区白模驱动，不直接绑定 LevelConfig。", MessageType.Info);
+                    if (!string.IsNullOrWhiteSpace(script.SemanticLabel)) {
+                        EditorGUILayout.LabelField($"Semantic Labels: {script.SemanticLabel}", EditorStyles.boldLabel);
+                    }
+
                     if (script.HasSpawnMarker) {
                         EditorGUILayout.LabelField($"Spawn Marker: {script.SpawnMarkerId}", EditorStyles.boldLabel);
                     }

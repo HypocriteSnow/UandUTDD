@@ -47,6 +47,37 @@ namespace ArknightsLite.Editor.LevelEditor.Map {
             RefreshTileVisual(x, z);
         }
 
+        public LevelEditorWorkspace.SemanticMarker PlaceSpawnMarker(int x, int z) {
+            if (_workspace == null) {
+                return null;
+            }
+
+            var marker = _workspace.AddSpawnMarker(new Vector2Int(x, z));
+            RefreshTileVisual(x, z);
+            return marker;
+        }
+
+        public LevelEditorWorkspace.SemanticMarker PlaceGoalMarker(int x, int z) {
+            if (_workspace == null) {
+                return null;
+            }
+
+            var marker = _workspace.AddGoalMarker(new Vector2Int(x, z));
+            RefreshTileVisual(x, z);
+            return marker;
+        }
+
+        public LevelEditorWorkspace.PortalPairDefinition PlacePortalPair(Vector2Int entrancePosition, Vector2Int exitPosition) {
+            if (_workspace == null) {
+                return null;
+            }
+
+            var pair = _workspace.AddPortalPair(entrancePosition, exitPosition);
+            RefreshTileVisual(pair.EntrancePosition.x, pair.EntrancePosition.y);
+            RefreshTileVisual(pair.ExitPosition.x, pair.ExitPosition.y);
+            return pair;
+        }
+
         private void RefreshTileVisual(int x, int z) {
             foreach (var authoring in Object.FindObjectsOfType<TileAuthoring>()) {
                 if (authoring.X != x || authoring.Z != z) {
@@ -54,12 +85,7 @@ namespace ArknightsLite.Editor.LevelEditor.Map {
                 }
 
                 authoring.ApplyTileData(_workspace.GetTileOverride(x, z), _workspace.CellSize);
-                authoring.ApplySemanticMarkers(
-                    _workspace.IsSpawnPoint(x, z),
-                    _workspace.SpawnId,
-                    _workspace.IsGoalPoint(x, z),
-                    _workspace.GoalId
-                );
+                authoring.ApplySemanticMarkers(_workspace.GetSemanticLabelsAt(x, z));
                 break;
             }
         }

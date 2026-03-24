@@ -1,4 +1,6 @@
 #if UNITY_EDITOR
+using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEditor;
 using ArknightsLite.Config;
@@ -46,6 +48,7 @@ public class TileAuthoring : MonoBehaviour {
     [SerializeField] private string _spawnMarkerId = string.Empty;
     [SerializeField] private bool _hasGoalMarker;
     [SerializeField] private string _goalMarkerId = string.Empty;
+    [SerializeField] private List<string> _semanticLabels = new List<string>();
     
     
     // ==================== 初始化 ====================
@@ -143,6 +146,43 @@ public class TileAuthoring : MonoBehaviour {
         _spawnMarkerId = hasSpawnMarker ? spawnMarkerId ?? string.Empty : string.Empty;
         _hasGoalMarker = hasGoalMarker;
         _goalMarkerId = hasGoalMarker ? goalMarkerId ?? string.Empty : string.Empty;
+        _semanticLabels = new List<string>();
+        if (_hasSpawnMarker) {
+            _semanticLabels.Add(_spawnMarkerId);
+        }
+
+        if (_hasGoalMarker) {
+            _semanticLabels.Add(_goalMarkerId);
+        }
+        UpdateVisual();
+    }
+
+    public void ApplySemanticMarkers(IEnumerable<string> semanticLabels) {
+        _semanticLabels = new List<string>();
+        _hasSpawnMarker = false;
+        _spawnMarkerId = string.Empty;
+        _hasGoalMarker = false;
+        _goalMarkerId = string.Empty;
+
+        if (semanticLabels != null) {
+            foreach (string semanticLabel in semanticLabels) {
+                if (string.IsNullOrWhiteSpace(semanticLabel) || _semanticLabels.Contains(semanticLabel)) {
+                    continue;
+                }
+
+                _semanticLabels.Add(semanticLabel);
+                if (!_hasSpawnMarker && IsSpawnSemanticLabel(semanticLabel)) {
+                    _hasSpawnMarker = true;
+                    _spawnMarkerId = semanticLabel;
+                }
+
+                if (!_hasGoalMarker && IsGoalSemanticLabel(semanticLabel)) {
+                    _hasGoalMarker = true;
+                    _goalMarkerId = semanticLabel;
+                }
+            }
+        }
+
         UpdateVisual();
     }
     
@@ -360,6 +400,8 @@ public class TileAuthoring : MonoBehaviour {
     public string SpawnMarkerId => string.IsNullOrWhiteSpace(_spawnMarkerId) ? "spawn_01" : _spawnMarkerId;
 
     public string GoalMarkerId => string.IsNullOrWhiteSpace(_goalMarkerId) ? "goal_01" : _goalMarkerId;
+
+    public string SemanticLabel => GetSemanticLabel();
     
     /// <summary>
     /// 设置格子类型（用于笔刷工具）
@@ -395,13 +437,14 @@ public class TileAuthoring : MonoBehaviour {
     // ==================== 调试信息 ====================
     
     private void OnDrawGizmos() {
-        if (!HasSpawnMarker && !HasGoalMarker) {
+        string semanticLabel = GetSemanticLabel();
+        if (string.IsNullOrWhiteSpace(semanticLabel)) {
             return;
         }
 
         Color color = HasSpawnMarker && HasGoalMarker
             ? Color.magenta
-            : (HasSpawnMarker ? new Color(0.9f, 0.2f, 0.2f) : new Color(0.2f, 0.5f, 1f));
+            : (HasSpawnMarker ? new Color(0.9f, 0.2f, 0.2f) : (HasGoalMarker ? new Color(0.2f, 0.5f, 1f) : Color.magenta));
 
         Gizmos.color = color;
         Gizmos.DrawWireCube(transform.position + Vector3.up * 0.2f, new Vector3(_cellSize * 0.6f, 0.3f, _cellSize * 0.6f));
@@ -409,7 +452,7 @@ public class TileAuthoring : MonoBehaviour {
         #if UNITY_EDITOR
         var style = new GUIStyle(EditorStyles.boldLabel);
         style.normal.textColor = color;
-        Handles.Label(transform.position + Vector3.up * 0.6f, GetSemanticLabel(), style);
+        Handles.Label(transform.position + Vector3.up * 0.6f, semanticLabel, style);
         #endif
     }
 
@@ -424,6 +467,10 @@ public class TileAuthoring : MonoBehaviour {
     }
 
     private string GetSemanticLabel() {
+        if (_semanticLabels != null && _semanticLabels.Count > 0) {
+            return string.Join(" / ", _semanticLabels);
+        }
+
         if (HasSpawnMarker && HasGoalMarker) {
             return $"{SpawnMarkerId} / {GoalMarkerId}";
         }
@@ -437,6 +484,16 @@ public class TileAuthoring : MonoBehaviour {
         }
 
         return string.Empty;
+    }
+
+    private static bool IsSpawnSemanticLabel(string semanticLabel) {
+        return semanticLabel.StartsWith("R", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(semanticLabel, "spawn_01", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsGoalSemanticLabel(string semanticLabel) {
+        return semanticLabel.StartsWith("B", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(semanticLabel, "goal_01", StringComparison.OrdinalIgnoreCase);
     }
 }
 #endif

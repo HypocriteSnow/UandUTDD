@@ -61,12 +61,7 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
 
             var authoring = cube.AddComponent<TileAuthoring>();
             authoring.Initialize(x, z, workspace.GetTileOverride(x, z), workspace.CellSize, visualConfig);
-            authoring.ApplySemanticMarkers(
-                workspace.IsSpawnPoint(x, z),
-                workspace.SpawnId,
-                workspace.IsGoalPoint(x, z),
-                workspace.GoalId
-            );
+            authoring.ApplySemanticMarkers(workspace.GetSemanticLabelsAt(x, z));
         }
     }
 }
