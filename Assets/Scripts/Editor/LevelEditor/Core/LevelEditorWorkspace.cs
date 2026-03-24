@@ -8,6 +8,7 @@ namespace ArknightsLite.Editor.LevelEditor.Core {
     [Serializable]
     public sealed class LevelEditorWorkspace {
         public string LevelName = string.Empty;
+        public string ExportName = string.Empty;
         public int MapWidth = 10;
         public int MapDepth = 10;
         public float CellSize = 1f;
@@ -24,14 +25,76 @@ namespace ArknightsLite.Editor.LevelEditor.Core {
         public List<OperatorTemplateData> Operators = new List<OperatorTemplateData>();
 
         public static LevelEditorWorkspace CreateNew(string levelName) {
+            string resolvedLevelName = string.IsNullOrWhiteSpace(levelName) ? "NewLevel" : levelName;
             return new LevelEditorWorkspace {
-                LevelName = string.IsNullOrWhiteSpace(levelName) ? "NewLevel" : levelName,
+                LevelName = resolvedLevelName,
+                ExportName = resolvedLevelName,
                 Runtime = new LevelRuntimeParameters(),
                 SpawnId = "spawn_01",
                 SpawnPoint = Vector2Int.zero,
                 GoalId = "goal_01",
                 GoalPoint = new Vector2Int(9, 9)
             };
+        }
+
+        public bool EnsureDefaults() {
+            bool changed = false;
+
+            if (string.IsNullOrWhiteSpace(LevelName)) {
+                LevelName = "NewLevel";
+                changed = true;
+            }
+
+            if (string.IsNullOrWhiteSpace(ExportName)) {
+                ExportName = LevelName;
+                changed = true;
+            }
+
+            if (MapWidth <= 0) {
+                MapWidth = 10;
+                changed = true;
+            }
+
+            if (MapDepth <= 0) {
+                MapDepth = 10;
+                changed = true;
+            }
+
+            if (CellSize <= 0f) {
+                CellSize = 1f;
+                changed = true;
+            }
+
+            Runtime ??= new LevelRuntimeParameters();
+            TileOverrides ??= new List<TileData>();
+            Portals ??= new List<PortalDefinition>();
+            Waves ??= new List<WaveDefinition>();
+            Enemies ??= new List<EnemyTemplateData>();
+            Operators ??= new List<OperatorTemplateData>();
+
+            if (string.IsNullOrWhiteSpace(SpawnId)) {
+                SpawnId = "spawn_01";
+                changed = true;
+            }
+
+            if (string.IsNullOrWhiteSpace(GoalId)) {
+                GoalId = "goal_01";
+                changed = true;
+            }
+
+            Vector2Int clampedSpawn = ClampToBounds(SpawnPoint);
+            if (SpawnPoint != clampedSpawn) {
+                SpawnPoint = clampedSpawn;
+                changed = true;
+            }
+
+            Vector2Int clampedGoal = ClampToBounds(GoalPoint);
+            if (GoalPoint != clampedGoal) {
+                GoalPoint = clampedGoal;
+                changed = true;
+            }
+
+            return changed;
         }
 
         public static WaveDefinition CreateDefaultWave(string waveId) {
@@ -58,11 +121,13 @@ namespace ArknightsLite.Editor.LevelEditor.Core {
         }
 
         public TileData GetTileOverride(int x, int z) {
+            EnsureDefaults();
             var existing = TileOverrides.Find(tile => tile.x == x && tile.z == z);
             return existing ?? CreateDefaultTile(x, z);
         }
 
         public void SetTileOverride(int x, int z, TileData tileData) {
+            EnsureDefaults();
             var existing = TileOverrides.Find(tile => tile.x == x && tile.z == z);
             var normalized = tileData ?? CreateDefaultTile(x, z);
             normalized.x = x;
@@ -96,6 +161,7 @@ namespace ArknightsLite.Editor.LevelEditor.Core {
         }
 
         public bool IsTileWalkable(int x, int z) {
+            EnsureDefaults();
             if (x < 0 || x >= MapWidth || z < 0 || z >= MapDepth) {
                 return false;
             }
@@ -108,38 +174,46 @@ namespace ArknightsLite.Editor.LevelEditor.Core {
         }
 
         public void SetSpawnPoint(Vector2Int position) {
+            EnsureDefaults();
             SpawnPoint = ClampToBounds(position);
         }
 
         public void SetGoalPoint(Vector2Int position) {
+            EnsureDefaults();
             GoalPoint = ClampToBounds(position);
         }
 
         public bool IsSpawnPoint(int x, int z) {
+            EnsureDefaults();
             Vector2Int point = GetResolvedSpawnPoint();
             return point.x == x && point.y == z;
         }
 
         public bool IsGoalPoint(int x, int z) {
+            EnsureDefaults();
             Vector2Int point = GetResolvedGoalPoint();
             return point.x == x && point.y == z;
         }
 
         public bool TryResolveSpawn(string spawnId, out Vector2Int position) {
+            EnsureDefaults();
             position = GetResolvedSpawnPoint();
             return string.IsNullOrWhiteSpace(spawnId) || string.Equals(spawnId, SpawnId, StringComparison.OrdinalIgnoreCase);
         }
 
         public bool TryResolveGoal(string goalId, out Vector2Int position) {
+            EnsureDefaults();
             position = GetResolvedGoalPoint();
             return string.IsNullOrWhiteSpace(goalId) || string.Equals(goalId, GoalId, StringComparison.OrdinalIgnoreCase);
         }
 
         public Vector2Int GetResolvedSpawnPoint() {
+            EnsureDefaults();
             return ClampToBounds(SpawnPoint);
         }
 
         public Vector2Int GetResolvedGoalPoint() {
+            EnsureDefaults();
             return ClampToBounds(GoalPoint);
         }
 

@@ -5,6 +5,7 @@ namespace ArknightsLite.Editor.LevelEditor.Core {
         public LevelEditorMode Mode { get; private set; } = LevelEditorMode.Map;
         public LevelConfig CurrentLevel { get; private set; }
         public LevelEditorWorkspace CurrentWorkspace { get; private set; }
+        public LevelEditorWorkspaceAsset CurrentWorkspaceAsset { get; private set; }
         public bool IsEditing { get; private set; }
 
         public void StartEditing(LevelConfig config = null) {
@@ -23,6 +24,24 @@ namespace ArknightsLite.Editor.LevelEditor.Core {
 
         public void SetWorkspace(LevelEditorWorkspace workspace) {
             CurrentWorkspace = workspace;
+            if (CurrentWorkspaceAsset != null) {
+                CurrentWorkspaceAsset.Workspace = workspace;
+                CurrentWorkspaceAsset.EnsureInitialized();
+                CurrentWorkspace = CurrentWorkspaceAsset.Workspace;
+            } else {
+                CurrentWorkspace?.EnsureDefaults();
+            }
+        }
+
+        public void SetWorkspaceAsset(LevelEditorWorkspaceAsset workspaceAsset) {
+            CurrentWorkspaceAsset = workspaceAsset;
+            if (CurrentWorkspaceAsset == null) {
+                CurrentWorkspace = null;
+                return;
+            }
+
+            CurrentWorkspaceAsset.EnsureInitialized();
+            CurrentWorkspace = CurrentWorkspaceAsset.Workspace;
         }
 
         public void SetMode(LevelEditorMode mode) {
