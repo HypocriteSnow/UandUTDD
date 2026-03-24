@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine.SceneManagement;
+using System;
 using System.IO;
 using ArknightsLite.Config;
 using ArknightsLite.Model;
@@ -113,6 +114,34 @@ public class LevelEditorWindow : EditorWindow {
         var workspace = _session.CurrentWorkspace;
         bool hasWorkspace = workspace != null;
 
+        EditorGUILayout.BeginHorizontal();
+        if (GUILayout.Button("Open Workspace", GUILayout.Width(120))) {
+            EditorApplication.delayCall += OpenWorkspace;
+        }
+
+        GUI.enabled = hasWorkspace;
+        if (GUILayout.Button("Save Workspace", GUILayout.Width(120))) {
+            EditorApplication.delayCall += SaveWorkspace;
+        }
+        GUI.enabled = true;
+        EditorGUILayout.EndHorizontal();
+
+        if (hasWorkspace) {
+            EditorGUI.BeginChangeCheck();
+            string nextLevelName = EditorGUILayout.TextField("Workspace Name", workspace.LevelName);
+            string nextExportName = EditorGUILayout.TextField("Export Name", workspace.ExportName);
+            if (EditorGUI.EndChangeCheck()) {
+                workspace.LevelName = nextLevelName;
+                workspace.ExportName = nextExportName;
+                _newLevelName = nextLevelName;
+                MarkCurrentWorkspaceDirty();
+            }
+
+            if (GUILayout.Button("Sync Naming", GUILayout.Width(120))) {
+                SyncWorkspaceNaming();
+            }
+        }
+
         if (hasWorkspace) {
             EditorGUILayout.HelpBox($"当前工作区: {workspace.LevelName} ({workspace.MapWidth}x{workspace.MapDepth})", MessageType.Info);
         } else {
@@ -175,7 +204,11 @@ public class LevelEditorWindow : EditorWindow {
     /// 运行时参数区域
     /// </summary>
     private void DrawRuntimeSection() {
+        EditorGUI.BeginChangeCheck();
         LevelRuntimePanel.Draw(_session.CurrentWorkspace);
+        if (EditorGUI.EndChangeCheck()) {
+            MarkCurrentWorkspaceDirty();
+        }
     }
 
     /// <summary>
@@ -189,6 +222,7 @@ public class LevelEditorWindow : EditorWindow {
         EditorGUILayout.LabelField("工作区模块", EditorStyles.boldLabel);
         _workspaceToolTab = GUILayout.Toolbar(_workspaceToolTab, new[] { "地图", "传送门", "路径", "波次" });
 
+        EditorGUI.BeginChangeCheck();
         switch (_workspaceToolTab) {
             case 0:
                 EditorGUILayout.HelpBox("地图编辑使用上方白模与笔刷工具。", MessageType.Info);
@@ -202,6 +236,10 @@ public class LevelEditorWindow : EditorWindow {
             case 3:
                 _selectedWaveIndex = WaveEditorPanel.Draw(_session.CurrentWorkspace, _selectedWaveIndex);
                 break;
+        }
+
+        if (EditorGUI.EndChangeCheck()) {
+            MarkCurrentWorkspaceDirty();
         }
     }
     
@@ -547,16 +585,19 @@ public class LevelEditorWindow : EditorWindow {
                         case WorkspaceSceneTool.Spawn:
                             Undo.RecordObject(authoring, "Move Workspace Spawn");
                             _workspaceMapController.SetSpawnPoint(authoring.X, authoring.Z);
+                            MarkCurrentWorkspaceDirty();
                             break;
 
                         case WorkspaceSceneTool.Goal:
                             Undo.RecordObject(authoring, "Move Workspace Goal");
                             _workspaceMapController.SetGoalPoint(authoring.X, authoring.Z);
+                            MarkCurrentWorkspaceDirty();
                             break;
 
                         default:
                             Undo.RecordObject(authoring, "Paint Workspace Tile");
                             _workspaceMapController.PaintTile(authoring.X, authoring.Z, _brushType, _brushHeight);
+                            MarkCurrentWorkspaceDirty();
                             break;
                     }
                     e.Use();
@@ -642,8 +683,8 @@ public class LevelEditorWindow : EditorWindow {
         }
 
         var workspace = LevelEditorWorkspace.CreateNew(_newLevelName);
-        _session.SetWorkspace(workspace);
-        _workspaceMapController = new WorkspaceMapController(workspace);
+        string assetPath = LevelEditorWorkspaceRepository.SaveAsNewAsset(workspace);
+        LoadWorkspaceAsset(assetPath);
 
         Debug.Log($"[LevelEditor] 创建了新的工作区: {workspace.LevelName}");
     }
@@ -651,6 +692,55 @@ public class LevelEditorWindow : EditorWindow {
     /// <summary>
     /// 从当前工作区生成或刷新白模
     /// </summary>
+    private void OpenWorkspace() {
+        string initialDirectory = GetDefaultWorkspaceFolderPath();
+        string selectedPath = EditorUtility.OpenFilePanel("Open Workspace", initialDirectory, "asset");
+        if (string.IsNullOrWhiteSpace(selectedPath)) {
+            return;
+        }
+
+        if (!TryConvertAbsolutePathToAssetPath(selectedPath, out string assetPath)) {
+            EditorUtility.DisplayDialog("閿欒", "鍙兘鎵撳紑褰撳墠椤圭洰鍐呯殑 Workspace 璧勬簮", "纭畾");
+            return;
+        }
+
+        LoadWorkspaceAsset(assetPath);
+    }
+
+    private void LoadWorkspaceAsset(string assetPath) {
+        var asset = LevelEditorWorkspaceRepository.LoadAsset(assetPath);
+        if (asset == null) {
+            EditorUtility.DisplayDialog("閿欒", "鏃犳硶鍔犺浇鎸囧畾鐨?Workspace 璧勬簮", "纭畾");
+            return;
+        }
+
+        _session.SetWorkspaceAsset(asset);
+        _workspaceMapController = new WorkspaceMapController(_session.CurrentWorkspace);
+        _newLevelName = _session.CurrentWorkspace?.LevelName ?? _newLevelName;
+
+        if (_isEditMode || _whiteboxRoot != null) {
+            GenerateWhiteboxFromWorkspace();
+        }
+    }
+
+    private void SaveWorkspace() {
+        if (_session.CurrentWorkspaceAsset == null) {
+            EditorUtility.DisplayDialog("閿欒", "褰撳墠娌℃湁鍙繚瀛樼殑 Workspace 璧勬簮", "纭畾");
+            return;
+        }
+
+        LevelEditorWorkspaceRepository.Save(_session.CurrentWorkspaceAsset);
+    }
+
+    private void SyncWorkspaceNaming() {
+        if (_session.CurrentWorkspace == null) {
+            return;
+        }
+
+        _session.CurrentWorkspace.ExportName = _session.CurrentWorkspace.LevelName;
+        MarkCurrentWorkspaceDirty();
+    }
+
     private void GenerateWhiteboxFromWorkspace() {
         var workspace = _session.CurrentWorkspace;
         if (workspace == null) {
@@ -687,6 +777,35 @@ public class LevelEditorWindow : EditorWindow {
     /// <summary>
     /// 创建新的关卡配置
     /// </summary>
+    private void MarkCurrentWorkspaceDirty() {
+        if (_session.CurrentWorkspaceAsset != null) {
+            EditorUtility.SetDirty(_session.CurrentWorkspaceAsset);
+        }
+    }
+
+    private static bool TryConvertAbsolutePathToAssetPath(string absolutePath, out string assetPath) {
+        assetPath = null;
+        if (string.IsNullOrWhiteSpace(absolutePath)) {
+            return false;
+        }
+
+        string projectAssetsPath = Path.GetFullPath(Application.dataPath).Replace("\\", "/");
+        string normalizedAbsolutePath = Path.GetFullPath(absolutePath).Replace("\\", "/");
+        if (!normalizedAbsolutePath.StartsWith(projectAssetsPath, StringComparison.OrdinalIgnoreCase)) {
+            return false;
+        }
+
+        assetPath = "Assets" + normalizedAbsolutePath.Substring(projectAssetsPath.Length);
+        return true;
+    }
+
+    private static string GetDefaultWorkspaceFolderPath() {
+        string relativeFolder = LevelEditorWorkspaceRepository.DefaultRootFolder.Replace('/', Path.DirectorySeparatorChar);
+        string projectRoot = Directory.GetParent(Application.dataPath)?.FullName ?? Directory.GetCurrentDirectory();
+        string fullPath = Path.Combine(projectRoot, relativeFolder);
+        return Directory.Exists(fullPath) ? fullPath : Application.dataPath;
+    }
+
     private void CreateLevelConfig() {
         // 验证名称
         if (string.IsNullOrWhiteSpace(_newLevelName)) {

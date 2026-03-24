@@ -45,7 +45,7 @@ namespace ArknightsLite.Editor.LevelEditor.Core {
                 changed = true;
             }
 
-            if (string.IsNullOrWhiteSpace(ExportName)) {
+            if (ExportName == null) {
                 ExportName = LevelName;
                 changed = true;
             }
