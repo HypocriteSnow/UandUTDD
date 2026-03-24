@@ -10,10 +10,25 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
         private const string ExportDirectory = "Assets/Resources/Levels/Configs";
 
         public static string BuildAssetName(LevelEditorWorkspace workspace) {
-            string levelName = workspace != null && !string.IsNullOrWhiteSpace(workspace.LevelName)
-                ? workspace.LevelName
-                : "NewLevel";
-            return $"{levelName}_LevelConfig";
+            return $"{ResolveExportName(workspace)}_LevelConfig";
+        }
+
+        public static string ResolveExportName(LevelEditorWorkspace workspace) {
+            if (workspace != null) {
+                if (!string.IsNullOrWhiteSpace(workspace.ExportName)) {
+                    return workspace.ExportName.Trim();
+                }
+
+                if (!string.IsNullOrWhiteSpace(workspace.LevelName)) {
+                    return workspace.LevelName.Trim();
+                }
+            }
+
+            return "NewLevel";
+        }
+
+        public static bool AssetExists(LevelEditorWorkspace workspace) {
+            return AssetDatabase.LoadAssetAtPath<LevelConfig>(BuildAssetPath(workspace)) != null;
         }
 
         public static LevelConfig BuildTransientConfig(LevelEditorWorkspace workspace) {
@@ -30,13 +45,12 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
             var config = AssetDatabase.LoadAssetAtPath<LevelConfig>(assetPath);
             if (config == null) {
                 config = ScriptableObject.CreateInstance<LevelConfig>();
-                config.name = BuildAssetName(workspace);
-                ApplyWorkspace(config, workspace);
                 AssetDatabase.CreateAsset(config, assetPath);
-            } else {
-                ApplyWorkspace(config, workspace);
-                EditorUtility.SetDirty(config);
             }
+
+            config.name = BuildAssetName(workspace);
+            ApplyWorkspace(config, workspace);
+            EditorUtility.SetDirty(config);
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
@@ -59,6 +73,8 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
                 return;
             }
 
+            workspace.EnsureDefaults();
+
             config.mapWidth = workspace.MapWidth;
             config.mapDepth = workspace.MapDepth;
             config.cellSize = workspace.CellSize;
@@ -67,16 +83,51 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
             config.baseHealth = workspace.Runtime.BaseHealth;
             config.dpRecoveryInterval = workspace.Runtime.DpRecoveryInterval;
             config.dpRecoveryAmount = workspace.Runtime.DpRecoveryAmount;
-            config.spawnPoints = new List<Vector2Int> { workspace.GetResolvedSpawnPoint() };
-            config.goalPoint = workspace.GetResolvedGoalPoint();
-            config.specialTiles = CloneTiles(workspace);
+            config.spawnPoints = ResolveExportSpawnPoints(workspace);
+            config.goalPoint = ResolveExportGoalPoint(workspace);
+            config.specialTiles = CloneTiles(workspace, config.spawnPoints, config.goalPoint);
             config.portals = ClonePortals(workspace.Portals);
             config.waves = CloneWaves(workspace.Waves);
             config.enemies = CloneEnemies(workspace.Enemies);
             config.operators = CloneOperators(workspace.Operators);
         }
 
-        private static List<TileData> CloneTiles(LevelEditorWorkspace workspace) {
+        private static List<Vector2Int> ResolveExportSpawnPoints(LevelEditorWorkspace workspace) {
+            var result = new List<Vector2Int>();
+            if (workspace == null) {
+                return result;
+            }
+
+            if (workspace.SpawnMarkers != null && workspace.SpawnMarkers.Count > 0) {
+                foreach (var marker in workspace.SpawnMarkers) {
+                    if (marker == null || result.Contains(marker.Position)) {
+                        continue;
+                    }
+
+                    result.Add(marker.Position);
+                }
+            }
+
+            if (result.Count == 0) {
+                result.Add(workspace.GetResolvedSpawnPoint());
+            }
+
+            return result;
+        }
+
+        private static Vector2Int ResolveExportGoalPoint(LevelEditorWorkspace workspace) {
+            if (workspace != null && workspace.GoalMarkers != null && workspace.GoalMarkers.Count > 0) {
+                foreach (var marker in workspace.GoalMarkers) {
+                    if (marker != null) {
+                        return marker.Position;
+                    }
+                }
+            }
+
+            return workspace != null ? workspace.GetResolvedGoalPoint() : Vector2Int.zero;
+        }
+
+        private static List<TileData> CloneTiles(LevelEditorWorkspace workspace, List<Vector2Int> spawnPoints, Vector2Int goalPoint) {
             var result = new List<TileData>();
             if (workspace == null || workspace.TileOverrides == null) {
                 return result;
@@ -87,7 +138,7 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
                     continue;
                 }
 
-                if (workspace.IsSpawnPoint(tile.x, tile.z) || workspace.IsGoalPoint(tile.x, tile.z)) {
+                if (IsExportSpawnPoint(spawnPoints, tile.x, tile.z) || IsExportGoalPoint(goalPoint, tile.x, tile.z)) {
                     continue;
                 }
 
@@ -102,6 +153,24 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
             }
 
             return result;
+        }
+
+        private static bool IsExportSpawnPoint(List<Vector2Int> spawnPoints, int x, int z) {
+            if (spawnPoints == null) {
+                return false;
+            }
+
+            foreach (var spawnPoint in spawnPoints) {
+                if (spawnPoint.x == x && spawnPoint.y == z) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsExportGoalPoint(Vector2Int goalPoint, int x, int z) {
+            return goalPoint.x == x && goalPoint.y == z;
         }
 
         private static List<PortalDefinition> ClonePortals(List<PortalDefinition> portals) {

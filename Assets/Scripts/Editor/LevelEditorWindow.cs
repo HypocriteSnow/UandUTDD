@@ -856,6 +856,32 @@ public class LevelEditorWindow : EditorWindow {
             return;
         }
 
+        LevelValidationResult workspaceValidation = LevelValidationService.ValidateWorkspace(workspace);
+        if (!workspaceValidation.IsValid) {
+            ShowValidationDialog("Workspace validation failed", workspaceValidation);
+            return;
+        }
+
+        LevelConfig transientConfig = LevelConfigExportService.BuildTransientConfig(workspace);
+        try {
+            LevelValidationResult configValidation = LevelValidationService.Validate(transientConfig);
+            if (!configValidation.IsValid) {
+                ShowValidationDialog("Export validation failed", configValidation);
+                return;
+            }
+        } finally {
+            DestroyImmediate(transientConfig);
+        }
+
+        if (LevelConfigExportService.AssetExists(workspace)
+            && !EditorUtility.DisplayDialog(
+                "Confirm overwrite",
+                $"Overwrite {LevelConfigExportService.BuildAssetName(workspace)}?",
+                "Overwrite",
+                "Cancel")) {
+            return;
+        }
+
         _config = LevelConfigExportService.Export(workspace);
         _session.SetCurrentLevel(_config);
 
@@ -872,6 +898,14 @@ public class LevelEditorWindow : EditorWindow {
         if (_session.CurrentWorkspaceAsset != null) {
             EditorUtility.SetDirty(_session.CurrentWorkspaceAsset);
         }
+    }
+
+    private static void ShowValidationDialog(string title, LevelValidationResult result) {
+        if (result == null || result.IsValid) {
+            return;
+        }
+
+        EditorUtility.DisplayDialog(title, string.Join("\n", result.Errors), "OK");
     }
 
     private static bool TryConvertAbsolutePathToAssetPath(string absolutePath, out string assetPath) {
