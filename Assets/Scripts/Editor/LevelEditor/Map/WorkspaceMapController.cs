@@ -58,7 +58,13 @@ namespace ArknightsLite.Editor.LevelEditor.Map {
                 return existing;
             }
 
+            bool refreshLegacyFallback = _workspace.SpawnMarkers == null || _workspace.SpawnMarkers.Count == 0;
+            Vector2Int previous = _workspace.GetResolvedSpawnPoint();
             var marker = _workspace.AddSpawnMarker(new Vector2Int(x, z));
+            if (refreshLegacyFallback) {
+                RefreshTileVisual(previous.x, previous.y);
+            }
+
             RefreshTileVisual(x, z);
             return marker;
         }
@@ -74,7 +80,13 @@ namespace ArknightsLite.Editor.LevelEditor.Map {
                 return existing;
             }
 
+            bool refreshLegacyFallback = _workspace.GoalMarkers == null || _workspace.GoalMarkers.Count == 0;
+            Vector2Int previous = _workspace.GetResolvedGoalPoint();
             var marker = _workspace.AddGoalMarker(new Vector2Int(x, z));
+            if (refreshLegacyFallback) {
+                RefreshTileVisual(previous.x, previous.y);
+            }
+
             RefreshTileVisual(x, z);
             return marker;
         }

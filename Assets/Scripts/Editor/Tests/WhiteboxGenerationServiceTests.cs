@@ -1,6 +1,7 @@
 using ArknightsLite.Editor.LevelEditor.Core;
 using ArknightsLite.Editor.LevelEditor.Services;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 
 namespace ArknightsLite.Editor.Tests.LevelEditor {
@@ -55,9 +56,56 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
             }
         }
 
+        [Test]
+        public void GenerateIntoOpenScene_FromReloadedWorkspace_RendersSemanticAndPortalLabels() {
+            var workspace = LevelEditorWorkspace.CreateNew("Tutorial_01");
+            workspace.MapWidth = 6;
+            workspace.MapDepth = 5;
+            workspace.AddSpawnMarker(new Vector2Int(1, 1));
+            workspace.AddGoalMarker(new Vector2Int(4, 3));
+            workspace.AddPortalPair(new Vector2Int(2, 1), new Vector2Int(3, 3));
+
+            string assetPath = null;
+            WhiteboxRoot root = null;
+            try {
+                assetPath = LevelEditorWorkspaceRepository.SaveAsNewAsset(workspace);
+                var restored = LevelEditorWorkspaceRepository.LoadAsset(assetPath);
+                root = WhiteboxGenerationService.GenerateIntoOpenScene(restored.Workspace);
+
+                var spawnTile = FindTile(root, 1, 1);
+                var goalTile = FindTile(root, 4, 3);
+                var inTile = FindTile(root, 2, 1);
+                var outTile = FindTile(root, 3, 3);
+
+                Assert.AreEqual("R1", spawnTile.SemanticLabel);
+                Assert.AreEqual("B1", goalTile.SemanticLabel);
+                StringAssert.Contains("IN1", inTile.SemanticLabel);
+                StringAssert.Contains("OUT1", outTile.SemanticLabel);
+            } finally {
+                if (root != null) {
+                    Object.DestroyImmediate(root.gameObject);
+                }
+
+                if (!string.IsNullOrWhiteSpace(assetPath)) {
+                    AssetDatabase.DeleteAsset(assetPath);
+                }
+            }
+        }
+
+        private static TileAuthoring FindTile(WhiteboxRoot root, int x, int z) {
+            foreach (var tile in root.GetComponentsInChildren<TileAuthoring>()) {
+                if (tile.X == x && tile.Z == z) {
+                    return tile;
+                }
+            }
+
+            return null;
+        }
+
         public static void RunFromCommandLine() {
             new WhiteboxGenerationServiceTests().EnsureWhitebox_CreatesExpectedTileCountFromWorkspaceSize();
             new WhiteboxGenerationServiceTests().GenerateIntoOpenScene_AssignsSpawnAndGoalMarkersToMatchingTiles();
+            new WhiteboxGenerationServiceTests().GenerateIntoOpenScene_FromReloadedWorkspace_RendersSemanticAndPortalLabels();
             Debug.Log("[LevelEditorTests] WhiteboxGenerationServiceTests passed.");
         }
     }

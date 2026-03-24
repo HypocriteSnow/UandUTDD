@@ -75,11 +75,50 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
             }
         }
 
+        [Test]
+        public void BuildTransientConfig_FromReloadedWorkspace_PreservesSemanticWaveReferences() {
+            var workspace = LevelEditorWorkspace.CreateNew("Workspace_T7_Export");
+            workspace.ExportName = "Episode_T7_Export";
+            var spawn = workspace.AddSpawnMarker(new Vector2Int(1, 1));
+            var goal = workspace.AddGoalMarker(new Vector2Int(5, 4));
+            workspace.AddPortalPair(new Vector2Int(2, 1), new Vector2Int(4, 3));
+
+            var wave = LevelEditorWorkspace.CreateDefaultWave("wave_01");
+            wave.spawnId = spawn.Id;
+            wave.targetId = goal.Id;
+            wave.path.Add(new PathNodeDefinition { x = 1, y = 1, wait = 0f });
+            wave.path.Add(new PathNodeDefinition { x = 2, y = 1, wait = 0f });
+            wave.path.Add(new PathNodeDefinition { x = 4, y = 3, wait = 0f });
+            wave.path.Add(new PathNodeDefinition { x = 5, y = 4, wait = 0f });
+            workspace.Waves.Add(wave);
+
+            string assetPath = null;
+            try {
+                assetPath = LevelEditorWorkspaceRepository.SaveAsNewAsset(workspace);
+                var restored = LevelEditorWorkspaceRepository.LoadAsset(assetPath);
+                LevelConfig config = LevelConfigExportService.BuildTransientConfig(restored.Workspace);
+
+                Assert.AreEqual("Episode_T7_Export_LevelConfig", config.name);
+                Assert.AreEqual(1, config.waves.Count);
+                Assert.AreEqual(spawn.Id, config.waves[0].spawnId);
+                Assert.AreEqual(goal.Id, config.waves[0].targetId);
+                Assert.AreEqual(4, config.waves[0].path.Count);
+                Assert.AreEqual(1, config.portals.Count);
+
+                Object.DestroyImmediate(config);
+            } finally {
+                if (!string.IsNullOrWhiteSpace(assetPath)) {
+                    AssetDatabase.DeleteAsset(assetPath);
+                }
+            }
+        }
+
         public static void RunFromCommandLine() {
             new LevelConfigExportServiceTests().BuildAssetName_UsesLevelNameSuffixLevelConfig();
             new LevelConfigExportServiceTests().BuildTransientConfig_CopiesWorkspaceDataIntoLevelConfig();
             new LevelConfigExportServiceTests().BuildTransientConfig_UsesWorkspaceSpawnAndGoalMarkers();
             new LevelConfigExportServiceTests().Export_CreatesNamedAssetUnderLevelsConfigDirectory();
+            new LevelConfigExportServiceTests().BuildTransientConfig_FromReloadedWorkspace_PreservesSemanticWaveReferences();
             Debug.Log("[LevelEditorTests] LevelConfigExportServiceTests passed.");
         }
     }

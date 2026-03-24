@@ -51,6 +51,39 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
             }
         }
 
+        [Test]
+        public void PlaceSpawnMarker_FirstSemanticPlacementClearsLegacyFallbackVisual() {
+            var workspace = LevelEditorWorkspace.CreateNew("Tutorial_01");
+            var controller = new WorkspaceMapController(workspace);
+
+            var existingRoot = Object.FindObjectOfType<WhiteboxRoot>();
+            if (existingRoot != null) {
+                Object.DestroyImmediate(existingRoot.gameObject);
+            }
+
+            var root = WhiteboxGenerationService.GenerateIntoOpenScene(workspace);
+
+            try {
+                var originalTile = FindTile(root, 0, 0);
+                var semanticTile = FindTile(root, 2, 1);
+
+                Assert.IsNotNull(originalTile);
+                Assert.IsNotNull(semanticTile);
+                Assert.IsNotNull(originalTile.transform.Find("SpawnMarkerVisual"));
+                Assert.IsNull(semanticTile.transform.Find("SpawnMarkerVisual"));
+
+                controller.PlaceSpawnMarker(2, 1);
+
+                Assert.IsNull(originalTile.transform.Find("SpawnMarkerVisual"));
+                Assert.IsNotNull(semanticTile.transform.Find("SpawnMarkerVisual"));
+                Assert.AreEqual("R1", semanticTile.SemanticLabel);
+            } finally {
+                if (root != null) {
+                    Object.DestroyImmediate(root.gameObject);
+                }
+            }
+        }
+
         private static TileAuthoring FindTile(WhiteboxRoot root, int x, int z) {
             foreach (var tile in root.GetComponentsInChildren<TileAuthoring>()) {
                 if (tile.X == x && tile.Z == z) {
@@ -64,6 +97,7 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
         public static void RunFromCommandLine() {
             new WorkspaceMapControllerTests().PaintTile_WritesOverrideIntoWorkspace();
             new WorkspaceMapControllerTests().SetSpawnPoint_MovesSpawnMarkerVisualToNewTile();
+            new WorkspaceMapControllerTests().PlaceSpawnMarker_FirstSemanticPlacementClearsLegacyFallbackVisual();
             Debug.Log("[LevelEditorTests] WorkspaceMapControllerTests passed.");
         }
     }
