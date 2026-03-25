@@ -1,5 +1,14 @@
 # Level Editor Workspace/Whitebox Refactor Implementation Plan
 
+> 状态：历史阶段计划。
+>
+> 当前关于地块类型、统一笔刷、默认禁用地图、出生点/目标点显式编号、覆盖规则、颜色规则、路径独立边界的有效定义，已转移到以下文档：
+>
+> - `docs/plans/2026-03-24-level-editor-workspace-productized-design.md`
+> - `docs/plans/2026-03-24-level-editor-workspace-productized-plan.md`
+>
+> 后续开发不要再以本文档中的旧白模假设作为当前实现依据。
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** 将当前 Unity 关卡编辑器重构为“编辑器工作区驱动白模编辑，并最终导出 `<当前关卡名称>_LevelConfig`”的工作流。

@@ -129,7 +129,7 @@ namespace ArknightsLite.Editor {
             }
             
             if (GUILayout.Button("添加起点")) {
-                _config.spawnPoints.Add(new Vector2Int(0, 0));
+                _config.spawnPoints.Add(new Vector2Int(-1, -1));
                 EditorUtility.SetDirty(_config);
             }
         }

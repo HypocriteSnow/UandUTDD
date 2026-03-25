@@ -8,6 +8,18 @@ using UnityEngine;
 namespace ArknightsLite.Editor.Tests.LevelEditor {
     public class WorkspaceMapControllerTests {
         [Test]
+        public void PaintGround_OverwritesExistingSpawnMarkerOnSameTile() {
+            var workspace = LevelEditorWorkspace.CreateNew("Tutorial_01");
+            var controller = new WorkspaceMapController(workspace);
+
+            controller.PlaceSpawnMarker(2, 3);
+            controller.PaintTile(2, 3, TileType.Ground, 0);
+
+            Assert.IsFalse(workspace.IsSpawnMarker("R1", 2, 3));
+            Assert.AreEqual(TileType.Ground, workspace.GetTileOverride(2, 3).tileType);
+        }
+
+        [Test]
         public void PaintTile_WritesOverrideIntoWorkspace() {
             var workspace = LevelEditorWorkspace.CreateNew("Tutorial_01");
             var controller = new WorkspaceMapController(workspace);
@@ -20,7 +32,7 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
         }
 
         [Test]
-        public void SetSpawnPoint_MovesSpawnMarkerVisualToNewTile() {
+        public void PlaceSpawnMarker_RendersSemanticVisualOnSelectedTile() {
             var workspace = LevelEditorWorkspace.CreateNew("Tutorial_01");
             var controller = new WorkspaceMapController(workspace);
 
@@ -32,18 +44,43 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
             var root = WhiteboxGenerationService.GenerateIntoOpenScene(workspace);
 
             try {
-                var originalTile = FindTile(root, 0, 0);
                 var updatedTile = FindTile(root, 2, 1);
 
-                Assert.IsNotNull(originalTile);
                 Assert.IsNotNull(updatedTile);
-                Assert.IsNotNull(originalTile.transform.Find("SpawnMarkerVisual"));
                 Assert.IsNull(updatedTile.transform.Find("SpawnMarkerVisual"));
 
-                controller.SetSpawnPoint(2, 1);
+                controller.PlaceSpawnMarker(2, 1);
 
-                Assert.IsNull(originalTile.transform.Find("SpawnMarkerVisual"));
                 Assert.IsNotNull(updatedTile.transform.Find("SpawnMarkerVisual"));
+                Assert.AreEqual("R1", updatedTile.SemanticLabel);
+            } finally {
+                if (root != null) {
+                    Object.DestroyImmediate(root.gameObject);
+                }
+            }
+        }
+
+        [Test]
+        public void PlaceGoalMarker_RendersSemanticVisualOnSelectedTile() {
+            var workspace = LevelEditorWorkspace.CreateNew("Tutorial_01");
+            var controller = new WorkspaceMapController(workspace);
+
+            var existingRoot = Object.FindObjectOfType<WhiteboxRoot>();
+            if (existingRoot != null) {
+                Object.DestroyImmediate(existingRoot.gameObject);
+            }
+
+            var root = WhiteboxGenerationService.GenerateIntoOpenScene(workspace);
+
+            try {
+                var semanticTile = FindTile(root, 2, 1);
+                Assert.IsNotNull(semanticTile);
+                Assert.IsNull(semanticTile.transform.Find("GoalMarkerVisual"));
+
+                controller.PlaceGoalMarker(2, 1);
+
+                Assert.IsNotNull(semanticTile.transform.Find("GoalMarkerVisual"));
+                Assert.AreEqual("B1", semanticTile.SemanticLabel);
             } finally {
                 if (root != null) {
                     Object.DestroyImmediate(root.gameObject);
@@ -62,8 +99,10 @@ namespace ArknightsLite.Editor.Tests.LevelEditor {
         }
 
         public static void RunFromCommandLine() {
+            new WorkspaceMapControllerTests().PaintGround_OverwritesExistingSpawnMarkerOnSameTile();
             new WorkspaceMapControllerTests().PaintTile_WritesOverrideIntoWorkspace();
-            new WorkspaceMapControllerTests().SetSpawnPoint_MovesSpawnMarkerVisualToNewTile();
+            new WorkspaceMapControllerTests().PlaceSpawnMarker_RendersSemanticVisualOnSelectedTile();
+            new WorkspaceMapControllerTests().PlaceGoalMarker_RendersSemanticVisualOnSelectedTile();
             Debug.Log("[LevelEditorTests] WorkspaceMapControllerTests passed.");
         }
     }

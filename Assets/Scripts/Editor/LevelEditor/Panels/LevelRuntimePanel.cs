@@ -5,17 +5,17 @@ namespace ArknightsLite.Editor.LevelEditor.Panels {
 
     public static class LevelRuntimePanel {
         public static void Draw(LevelEditorWorkspace workspace) {
-            EditorGUILayout.LabelField("关卡运行时参数", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(LevelEditorText.RuntimePanel.SectionTitle, EditorStyles.boldLabel);
 
             if (workspace == null) {
-                EditorGUILayout.HelpBox("创建工作区后可直接编辑初始 DP、基地生命和回费参数。", MessageType.Info);
+                EditorGUILayout.HelpBox(LevelEditorText.RuntimePanel.EmptyHelp, MessageType.Info);
                 return;
             }
 
-            int initialDp = EditorGUILayout.IntField("初始 DP", workspace.Runtime.InitialDp);
-            int baseHealth = EditorGUILayout.IntField("基地生命", workspace.Runtime.BaseHealth);
-            float dpRecoveryInterval = EditorGUILayout.FloatField("回费间隔", workspace.Runtime.DpRecoveryInterval);
-            int dpRecoveryAmount = EditorGUILayout.IntField("单次回费", workspace.Runtime.DpRecoveryAmount);
+            int initialDp = EditorGUILayout.IntField(LevelEditorText.RuntimePanel.InitialDpLabel, workspace.Runtime.InitialDp);
+            int baseHealth = EditorGUILayout.IntField(LevelEditorText.RuntimePanel.BaseHealthLabel, workspace.Runtime.BaseHealth);
+            float dpRecoveryInterval = EditorGUILayout.FloatField(LevelEditorText.RuntimePanel.DpRecoveryIntervalLabel, workspace.Runtime.DpRecoveryInterval);
+            int dpRecoveryAmount = EditorGUILayout.IntField(LevelEditorText.RuntimePanel.DpRecoveryAmountLabel, workspace.Runtime.DpRecoveryAmount);
 
             ApplyEdits(workspace, initialDp, baseHealth, dpRecoveryInterval, dpRecoveryAmount);
         }

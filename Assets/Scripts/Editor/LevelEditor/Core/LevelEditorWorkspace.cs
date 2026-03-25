@@ -7,16 +7,36 @@ namespace ArknightsLite.Editor.LevelEditor.Core {
 
     [Serializable]
     public sealed class LevelEditorWorkspace {
+        public const string DefaultLevelName = "NewLevel";
+
+        [Serializable]
+        public sealed class SemanticMarker {
+            public string Id = string.Empty;
+            public Vector2Int Position = Vector2Int.zero;
+        }
+
+        [Serializable]
+        public sealed class PortalPairDefinition {
+            public string PairId = string.Empty;
+            public string EntranceId = string.Empty;
+            public Vector2Int EntrancePosition = Vector2Int.zero;
+            public string ExitId = string.Empty;
+            public Vector2Int ExitPosition = Vector2Int.zero;
+            public float Delay = 0f;
+            public string Color = "#ffffff";
+        }
+
         public string LevelName = string.Empty;
+        public string ExportName = string.Empty;
         public int MapWidth = 10;
         public int MapDepth = 10;
         public float CellSize = 1f;
-        public TileType DefaultTileType = TileType.Ground;
+        public TileType DefaultTileType = TileType.Forbidden;
         public LevelRuntimeParameters Runtime = new LevelRuntimeParameters();
-        public string SpawnId = "spawn_01";
-        public Vector2Int SpawnPoint = Vector2Int.zero;
-        public string GoalId = "goal_01";
-        public Vector2Int GoalPoint = new Vector2Int(9, 9);
+
+        public List<SemanticMarker> SpawnMarkers = new List<SemanticMarker>();
+        public List<SemanticMarker> GoalMarkers = new List<SemanticMarker>();
+        public List<PortalPairDefinition> PortalPairs = new List<PortalPairDefinition>();
         public List<TileData> TileOverrides = new List<TileData>();
         public List<PortalDefinition> Portals = new List<PortalDefinition>();
         public List<WaveDefinition> Waves = new List<WaveDefinition>();
@@ -24,14 +44,96 @@ namespace ArknightsLite.Editor.LevelEditor.Core {
         public List<OperatorTemplateData> Operators = new List<OperatorTemplateData>();
 
         public static LevelEditorWorkspace CreateNew(string levelName) {
+            string resolvedLevelName = string.IsNullOrWhiteSpace(levelName) ? DefaultLevelName : levelName;
             return new LevelEditorWorkspace {
-                LevelName = string.IsNullOrWhiteSpace(levelName) ? "NewLevel" : levelName,
-                Runtime = new LevelRuntimeParameters(),
-                SpawnId = "spawn_01",
-                SpawnPoint = Vector2Int.zero,
-                GoalId = "goal_01",
-                GoalPoint = new Vector2Int(9, 9)
+                LevelName = resolvedLevelName,
+                ExportName = resolvedLevelName,
+                Runtime = new LevelRuntimeParameters()
             };
+        }
+
+        public bool EnsureDefaults() {
+            bool changed = false;
+
+            if (string.IsNullOrWhiteSpace(LevelName)) {
+                LevelName = DefaultLevelName;
+                changed = true;
+            }
+
+            if (ExportName == null) {
+                ExportName = LevelName;
+                changed = true;
+            }
+
+            if (MapWidth <= 0) {
+                MapWidth = 10;
+                changed = true;
+            }
+
+            if (MapDepth <= 0) {
+                MapDepth = 10;
+                changed = true;
+            }
+
+            if (CellSize <= 0f) {
+                CellSize = 1f;
+                changed = true;
+            }
+
+            if (Runtime == null) {
+                Runtime = new LevelRuntimeParameters();
+                changed = true;
+            }
+
+            if (SpawnMarkers == null) {
+                SpawnMarkers = new List<SemanticMarker>();
+                changed = true;
+            }
+
+            if (GoalMarkers == null) {
+                GoalMarkers = new List<SemanticMarker>();
+                changed = true;
+            }
+
+            if (PortalPairs == null) {
+                PortalPairs = new List<PortalPairDefinition>();
+                changed = true;
+            }
+
+            if (TileOverrides == null) {
+                TileOverrides = new List<TileData>();
+                changed = true;
+            }
+
+            if (Portals == null) {
+                Portals = new List<PortalDefinition>();
+                changed = true;
+            }
+
+            if (Waves == null) {
+                Waves = new List<WaveDefinition>();
+                changed = true;
+            }
+
+            if (Enemies == null) {
+                Enemies = new List<EnemyTemplateData>();
+                changed = true;
+            }
+
+            if (Operators == null) {
+                Operators = new List<OperatorTemplateData>();
+                changed = true;
+            }
+
+            changed |= NormalizeMarkers(SpawnMarkers);
+            changed |= NormalizeMarkers(GoalMarkers);
+            changed |= NormalizePortalPairs();
+
+            if (PortalPairs.Count > 0) {
+                SyncLegacyPortalsFromPairs();
+            }
+
+            return changed;
         }
 
         public static WaveDefinition CreateDefaultWave(string waveId) {
@@ -41,8 +143,8 @@ namespace ArknightsLite.Editor.LevelEditor.Core {
                 enemyId = string.Empty,
                 count = 1,
                 interval = 1f,
-                spawnId = "spawn_01",
-                targetId = "goal_01",
+                spawnId = string.Empty,
+                targetId = string.Empty,
                 path = new List<PathNodeDefinition>()
             };
         }
@@ -57,12 +159,124 @@ namespace ArknightsLite.Editor.LevelEditor.Core {
             };
         }
 
+        public SemanticMarker AddSpawnMarker(Vector2Int position) {
+            EnsureDefaults();
+
+            var marker = new SemanticMarker {
+                Id = BuildNextMarkerId(SpawnMarkers, "R"),
+                Position = ClampToBounds(position)
+            };
+
+            SpawnMarkers.Add(marker);
+            return marker;
+        }
+
+        public SemanticMarker AddGoalMarker(Vector2Int position) {
+            EnsureDefaults();
+
+            var marker = new SemanticMarker {
+                Id = BuildNextMarkerId(GoalMarkers, "B"),
+                Position = ClampToBounds(position)
+            };
+
+            GoalMarkers.Add(marker);
+            return marker;
+        }
+
+        public PortalPairDefinition AddPortalPair(Vector2Int entrancePosition, Vector2Int exitPosition) {
+            EnsureDefaults();
+
+            int pairNumber = GetNextPortalPairNumber();
+            var pair = new PortalPairDefinition {
+                PairId = pairNumber.ToString(),
+                EntranceId = $"IN{pairNumber}",
+                EntrancePosition = ClampToBounds(entrancePosition),
+                ExitId = $"OUT{pairNumber}",
+                ExitPosition = ClampToBounds(exitPosition),
+                Delay = 0f,
+                Color = "#ffffff"
+            };
+
+            PortalPairs.Add(pair);
+            SyncLegacyPortalsFromPairs();
+            return pair;
+        }
+
+        public bool RemoveSemanticAt(int x, int z) {
+            EnsureDefaults();
+
+            bool removed = RemoveMarkerAt(SpawnMarkers, x, z);
+            removed |= RemoveMarkerAt(GoalMarkers, x, z);
+
+            if (PortalPairs != null) {
+                for (int i = PortalPairs.Count - 1; i >= 0; i--) {
+                    var pair = PortalPairs[i];
+                    if (pair == null) {
+                        continue;
+                    }
+
+                    bool matchesEntrance = pair.EntrancePosition.x == x && pair.EntrancePosition.y == z;
+                    bool matchesExit = pair.ExitPosition.x == x && pair.ExitPosition.y == z;
+                    if (!matchesEntrance && !matchesExit) {
+                        continue;
+                    }
+
+                    PortalPairs.RemoveAt(i);
+                    removed = true;
+                }
+            }
+
+            if (removed) {
+                SyncLegacyPortalsFromPairs();
+            }
+
+            return removed;
+        }
+
+        public bool IsSpawnMarker(string id, int x, int z) {
+            EnsureDefaults();
+            return MatchesMarker(SpawnMarkers, id, x, z);
+        }
+
+        public bool IsGoalMarker(string id, int x, int z) {
+            EnsureDefaults();
+            return MatchesMarker(GoalMarkers, id, x, z);
+        }
+
+        public List<string> GetSemanticLabelsAt(int x, int z) {
+            EnsureDefaults();
+
+            var labels = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            AddMarkerLabels(labels, seen, SpawnMarkers, x, z);
+            AddMarkerLabels(labels, seen, GoalMarkers, x, z);
+
+            foreach (var pair in PortalPairs) {
+                if (pair == null) {
+                    continue;
+                }
+
+                if (pair.EntrancePosition.x == x && pair.EntrancePosition.y == z) {
+                    AddLabel(labels, seen, pair.EntranceId);
+                }
+
+                if (pair.ExitPosition.x == x && pair.ExitPosition.y == z) {
+                    AddLabel(labels, seen, pair.ExitId);
+                }
+            }
+
+            return labels;
+        }
+
         public TileData GetTileOverride(int x, int z) {
+            EnsureDefaults();
             var existing = TileOverrides.Find(tile => tile.x == x && tile.z == z);
             return existing ?? CreateDefaultTile(x, z);
         }
 
         public void SetTileOverride(int x, int z, TileData tileData) {
+            EnsureDefaults();
             var existing = TileOverrides.Find(tile => tile.x == x && tile.z == z);
             var normalized = tileData ?? CreateDefaultTile(x, z);
             normalized.x = x;
@@ -96,51 +310,253 @@ namespace ArknightsLite.Editor.LevelEditor.Core {
         }
 
         public bool IsTileWalkable(int x, int z) {
+            EnsureDefaults();
             if (x < 0 || x >= MapWidth || z < 0 || z >= MapDepth) {
                 return false;
             }
 
-            if (IsSpawnPoint(x, z) || IsGoalPoint(x, z)) {
+            if (HasAnySemanticMarkerAt(x, z)) {
                 return true;
             }
 
             return GetTileOverride(x, z).walkable;
         }
 
-        public void SetSpawnPoint(Vector2Int position) {
-            SpawnPoint = ClampToBounds(position);
-        }
-
-        public void SetGoalPoint(Vector2Int position) {
-            GoalPoint = ClampToBounds(position);
-        }
-
-        public bool IsSpawnPoint(int x, int z) {
-            Vector2Int point = GetResolvedSpawnPoint();
-            return point.x == x && point.y == z;
-        }
-
-        public bool IsGoalPoint(int x, int z) {
-            Vector2Int point = GetResolvedGoalPoint();
-            return point.x == x && point.y == z;
-        }
-
         public bool TryResolveSpawn(string spawnId, out Vector2Int position) {
-            position = GetResolvedSpawnPoint();
-            return string.IsNullOrWhiteSpace(spawnId) || string.Equals(spawnId, SpawnId, StringComparison.OrdinalIgnoreCase);
+            EnsureDefaults();
+            return TryResolveMarker(SpawnMarkers, spawnId, out position);
         }
 
         public bool TryResolveGoal(string goalId, out Vector2Int position) {
-            position = GetResolvedGoalPoint();
-            return string.IsNullOrWhiteSpace(goalId) || string.Equals(goalId, GoalId, StringComparison.OrdinalIgnoreCase);
+            EnsureDefaults();
+            return TryResolveMarker(GoalMarkers, goalId, out position);
         }
 
-        public Vector2Int GetResolvedSpawnPoint() {
-            return ClampToBounds(SpawnPoint);
+        private bool NormalizeMarkers(List<SemanticMarker> markers) {
+            bool changed = false;
+            if (markers == null) {
+                return false;
+            }
+
+            foreach (var marker in markers) {
+                if (marker == null) {
+                    continue;
+                }
+
+                Vector2Int clampedPosition = ClampToBounds(marker.Position);
+                if (marker.Position != clampedPosition) {
+                    marker.Position = clampedPosition;
+                    changed = true;
+                }
+            }
+
+            return changed;
         }
 
-        public Vector2Int GetResolvedGoalPoint() {
-            return ClampToBounds(GoalPoint);
+        private bool NormalizePortalPairs() {
+            bool changed = false;
+            if (PortalPairs == null) {
+                return false;
+            }
+
+            foreach (var pair in PortalPairs) {
+                if (pair == null) {
+                    continue;
+                }
+
+                Vector2Int clampedEntrance = ClampToBounds(pair.EntrancePosition);
+                if (pair.EntrancePosition != clampedEntrance) {
+                    pair.EntrancePosition = clampedEntrance;
+                    changed = true;
+                }
+
+                Vector2Int clampedExit = ClampToBounds(pair.ExitPosition);
+                if (pair.ExitPosition != clampedExit) {
+                    pair.ExitPosition = clampedExit;
+                    changed = true;
+                }
+            }
+
+            return changed;
+        }
+
+        private void SyncLegacyPortalsFromPairs() {
+            Portals.Clear();
+            foreach (var pair in PortalPairs) {
+                if (pair == null) {
+                    continue;
+                }
+
+                Portals.Add(new PortalDefinition {
+                    id = string.IsNullOrWhiteSpace(pair.PairId) ? pair.EntranceId : pair.PairId,
+                    inPos = pair.EntrancePosition,
+                    outPos = pair.ExitPosition,
+                    delay = pair.Delay,
+                    color = pair.Color
+                });
+            }
+        }
+
+        private static void AddMarkerLabels(List<string> labels, HashSet<string> seen, List<SemanticMarker> markers, int x, int z) {
+            if (markers == null) {
+                return;
+            }
+
+            foreach (var marker in markers) {
+                if (marker == null || marker.Position.x != x || marker.Position.y != z) {
+                    continue;
+                }
+
+                AddLabel(labels, seen, marker.Id);
+            }
+        }
+
+        private static void AddLabel(List<string> labels, HashSet<string> seen, string label) {
+            if (string.IsNullOrWhiteSpace(label) || !seen.Add(label)) {
+                return;
+            }
+
+            labels.Add(label);
+        }
+
+        private static bool RemoveMarkerAt(List<SemanticMarker> markers, int x, int z) {
+            if (markers == null) {
+                return false;
+            }
+
+            bool removed = false;
+            for (int i = markers.Count - 1; i >= 0; i--) {
+                var marker = markers[i];
+                if (marker == null) {
+                    continue;
+                }
+
+                if (marker.Position.x != x || marker.Position.y != z) {
+                    continue;
+                }
+
+                markers.RemoveAt(i);
+                removed = true;
+            }
+
+            return removed;
+        }
+
+        private bool HasAnySemanticMarkerAt(int x, int z) {
+            return ContainsMarkerAt(SpawnMarkers, x, z)
+                || ContainsMarkerAt(GoalMarkers, x, z)
+                || ContainsPortalAt(x, z);
+        }
+
+        private static bool ContainsMarkerAt(List<SemanticMarker> markers, int x, int z) {
+            if (markers == null) {
+                return false;
+            }
+
+            foreach (var marker in markers) {
+                if (marker != null && marker.Position.x == x && marker.Position.y == z) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool ContainsPortalAt(int x, int z) {
+            if (PortalPairs == null) {
+                return false;
+            }
+
+            foreach (var pair in PortalPairs) {
+                if (pair == null) {
+                    continue;
+                }
+
+                if ((pair.EntrancePosition.x == x && pair.EntrancePosition.y == z)
+                    || (pair.ExitPosition.x == x && pair.ExitPosition.y == z)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool MatchesMarker(List<SemanticMarker> markers, string id, int x, int z) {
+            if (markers == null) {
+                return false;
+            }
+
+            foreach (var marker in markers) {
+                if (marker == null) {
+                    continue;
+                }
+
+                if (string.Equals(marker.Id, id, StringComparison.OrdinalIgnoreCase)
+                    && marker.Position.x == x
+                    && marker.Position.y == z) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveMarker(List<SemanticMarker> markers, string markerId, out Vector2Int position) {
+            if (markers != null) {
+                foreach (var marker in markers) {
+                    if (marker == null || !string.Equals(marker.Id, markerId, StringComparison.OrdinalIgnoreCase)) {
+                        continue;
+                    }
+
+                    position = marker.Position;
+                    return true;
+                }
+            }
+
+            position = Vector2Int.zero;
+            return false;
+        }
+
+        private static string BuildNextMarkerId(List<SemanticMarker> markers, string prefix) {
+            int maxIndex = 0;
+            if (markers != null) {
+                foreach (var marker in markers) {
+                    if (marker == null || string.IsNullOrWhiteSpace(marker.Id)) {
+                        continue;
+                    }
+
+                    if (TryParseTrailingNumber(marker.Id, prefix, out int parsedIndex) && parsedIndex > maxIndex) {
+                        maxIndex = parsedIndex;
+                    }
+                }
+            }
+
+            return $"{prefix}{maxIndex + 1}";
+        }
+
+        private int GetNextPortalPairNumber() {
+            int maxIndex = 0;
+            foreach (var pair in PortalPairs) {
+                if (pair == null) {
+                    continue;
+                }
+
+                if (int.TryParse(pair.PairId, out int parsedIndex) && parsedIndex > maxIndex) {
+                    maxIndex = parsedIndex;
+                }
+            }
+
+            return maxIndex + 1;
+        }
+
+        private static bool TryParseTrailingNumber(string value, string prefix, out int parsedNumber) {
+            parsedNumber = 0;
+            if (string.IsNullOrWhiteSpace(value) || !value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) {
+                return false;
+            }
+
+            string suffix = value.Substring(prefix.Length);
+            return int.TryParse(suffix, out parsedNumber);
         }
 
         private TileData CreateDefaultTile(int x, int z) {

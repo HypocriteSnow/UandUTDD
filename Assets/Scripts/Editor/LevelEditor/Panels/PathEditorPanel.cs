@@ -8,33 +8,30 @@ namespace ArknightsLite.Editor.LevelEditor.Panels {
 
     public static class PathEditorPanel {
         public static void Draw(LevelEditorWorkspace workspace, int selectedWaveIndex) {
-            EditorGUILayout.LabelField("路径", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(LevelEditorText.PathPanel.SectionTitle, EditorStyles.boldLabel);
 
             if (workspace == null) {
-                EditorGUILayout.HelpBox("创建工作区后可编辑路径。", MessageType.Info);
+                EditorGUILayout.HelpBox(LevelEditorText.PathPanel.EmptyWorkspaceHelp, MessageType.Info);
                 return;
             }
 
-            if (workspace.Waves.Count == 0 || selectedWaveIndex < 0 || selectedWaveIndex >= workspace.Waves.Count) {
-                EditorGUILayout.HelpBox("先在波次面板里创建一个波次。", MessageType.Info);
-                return;
-            }
-
-            var wave = workspace.Waves[selectedWaveIndex];
-            if (wave == null) {
+            if (!TryGetSelectedWave(workspace, selectedWaveIndex, out WaveDefinition wave)) {
+                EditorGUILayout.HelpBox(LevelEditorText.PathPanel.EmptyWaveHelp, MessageType.Info);
                 return;
             }
 
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox)) {
-                EditorGUILayout.LabelField($"当前波次: {wave.waveId}");
+                EditorGUILayout.LabelField(LevelEditorText.PathPanel.CurrentWaveLabel(wave.waveId));
 
-                if (GUILayout.Button("自动填充到终点")) {
-                    if (PathAutoFillService.TryBuildPathForWave(workspace, wave, out List<PathNodeDefinition> generatedPath)) {
-                        wave.path = generatedPath;
-                    }
+                if (GUILayout.Button(LevelEditorText.PathPanel.GenerateButton)) {
+                    TryGeneratePathForSelectedWave(workspace, selectedWaveIndex);
                 }
 
-                if (GUILayout.Button("添加路径节点")) {
+                if (GUILayout.Button(LevelEditorText.PathPanel.ClearButton)) {
+                    ClearPathForSelectedWave(workspace, selectedWaveIndex);
+                }
+
+                if (GUILayout.Button(LevelEditorText.PathPanel.AddNodeButton)) {
                     wave.path.Add(new PathNodeDefinition());
                 }
 
@@ -47,15 +44,80 @@ namespace ArknightsLite.Editor.LevelEditor.Panels {
                     EditorGUILayout.BeginHorizontal();
                     node.x = EditorGUILayout.IntField("X", node.x);
                     node.y = EditorGUILayout.IntField("Y", node.y);
-                    node.wait = EditorGUILayout.FloatField("Wait", node.wait);
-                    if (GUILayout.Button("删", GUILayout.Width(32))) {
+                    node.wait = EditorGUILayout.FloatField(LevelEditorText.PathPanel.WaitLabel, node.wait);
+                    if (GUILayout.Button(LevelEditorText.PathPanel.DeleteButton, GUILayout.Width(56))) {
                         wave.path.RemoveAt(i);
                         EditorGUILayout.EndHorizontal();
                         break;
                     }
+
                     EditorGUILayout.EndHorizontal();
                 }
             }
+        }
+
+        public static bool TryGeneratePathForSelectedWave(LevelEditorWorkspace workspace, int selectedWaveIndex) {
+            if (!TryGetSelectedWave(workspace, selectedWaveIndex, out WaveDefinition wave)) {
+                return false;
+            }
+
+            if (!PathAutoFillService.TryBuildPathForWave(workspace, wave, out List<PathNodeDefinition> generatedPath)) {
+                return false;
+            }
+
+            wave.path = generatedPath;
+            return true;
+        }
+
+        public static bool ClearPathForSelectedWave(LevelEditorWorkspace workspace, int selectedWaveIndex) {
+            if (!TryGetSelectedWave(workspace, selectedWaveIndex, out WaveDefinition wave)) {
+                return false;
+            }
+
+            if (wave.path == null) {
+                wave.path = new List<PathNodeDefinition>();
+            } else {
+                wave.path.Clear();
+            }
+
+            return true;
+        }
+
+        public static bool TogglePathNodeForSelectedWave(LevelEditorWorkspace workspace, int selectedWaveIndex, Vector2Int position) {
+            if (!TryGetSelectedWave(workspace, selectedWaveIndex, out WaveDefinition wave)) {
+                return false;
+            }
+
+            wave.path = wave.path ?? new List<PathNodeDefinition>();
+
+            for (int i = 0; i < wave.path.Count; i++) {
+                var node = wave.path[i];
+                if (node == null) {
+                    continue;
+                }
+
+                if (node.x == position.x && node.y == position.y) {
+                    wave.path.RemoveAt(i);
+                    return true;
+                }
+            }
+
+            wave.path.Add(new PathNodeDefinition {
+                x = position.x,
+                y = position.y,
+                wait = 0f
+            });
+            return true;
+        }
+
+        private static bool TryGetSelectedWave(LevelEditorWorkspace workspace, int selectedWaveIndex, out WaveDefinition wave) {
+            wave = null;
+            if (workspace == null || workspace.Waves == null || selectedWaveIndex < 0 || selectedWaveIndex >= workspace.Waves.Count) {
+                return false;
+            }
+
+            wave = workspace.Waves[selectedWaveIndex];
+            return wave != null;
         }
     }
 }

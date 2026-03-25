@@ -3,6 +3,7 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
     using System.IO;
     using ArknightsLite.Config;
     using ArknightsLite.Editor.LevelEditor.Core;
+    using ArknightsLite.Model;
     using UnityEditor;
     using UnityEngine;
 
@@ -10,10 +11,25 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
         private const string ExportDirectory = "Assets/Resources/Levels/Configs";
 
         public static string BuildAssetName(LevelEditorWorkspace workspace) {
-            string levelName = workspace != null && !string.IsNullOrWhiteSpace(workspace.LevelName)
-                ? workspace.LevelName
-                : "NewLevel";
-            return $"{levelName}_LevelConfig";
+            return $"{ResolveExportName(workspace)}_LevelConfig";
+        }
+
+        public static string ResolveExportName(LevelEditorWorkspace workspace) {
+            if (workspace != null) {
+                if (!string.IsNullOrWhiteSpace(workspace.ExportName)) {
+                    return workspace.ExportName.Trim();
+                }
+
+                if (!string.IsNullOrWhiteSpace(workspace.LevelName)) {
+                    return workspace.LevelName.Trim();
+                }
+            }
+
+            return LevelEditorWorkspace.DefaultLevelName;
+        }
+
+        public static bool AssetExists(LevelEditorWorkspace workspace) {
+            return AssetDatabase.LoadAssetAtPath<LevelConfig>(BuildAssetPath(workspace)) != null;
         }
 
         public static LevelConfig BuildTransientConfig(LevelEditorWorkspace workspace) {
@@ -23,6 +39,12 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
             return config;
         }
 
+        public static List<TileData> BuildSpecialTilesForExport(LevelEditorWorkspace workspace) {
+            var specialTiles = CloneTiles(workspace);
+            EnsureSemanticEndpointTiles(specialTiles, workspace);
+            return specialTiles;
+        }
+
         public static LevelConfig Export(LevelEditorWorkspace workspace) {
             string assetPath = BuildAssetPath(workspace);
             EnsureExportDirectory();
@@ -30,13 +52,12 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
             var config = AssetDatabase.LoadAssetAtPath<LevelConfig>(assetPath);
             if (config == null) {
                 config = ScriptableObject.CreateInstance<LevelConfig>();
-                config.name = BuildAssetName(workspace);
-                ApplyWorkspace(config, workspace);
                 AssetDatabase.CreateAsset(config, assetPath);
-            } else {
-                ApplyWorkspace(config, workspace);
-                EditorUtility.SetDirty(config);
             }
+
+            config.name = BuildAssetName(workspace);
+            ApplyWorkspace(config, workspace);
+            EditorUtility.SetDirty(config);
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
@@ -59,6 +80,8 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
                 return;
             }
 
+            workspace.EnsureDefaults();
+
             config.mapWidth = workspace.MapWidth;
             config.mapDepth = workspace.MapDepth;
             config.cellSize = workspace.CellSize;
@@ -67,13 +90,44 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
             config.baseHealth = workspace.Runtime.BaseHealth;
             config.dpRecoveryInterval = workspace.Runtime.DpRecoveryInterval;
             config.dpRecoveryAmount = workspace.Runtime.DpRecoveryAmount;
-            config.spawnPoints = new List<Vector2Int> { workspace.GetResolvedSpawnPoint() };
-            config.goalPoint = workspace.GetResolvedGoalPoint();
-            config.specialTiles = CloneTiles(workspace);
+            config.spawnPoints = ResolveExportSpawnPoints(workspace);
+            config.goalPoint = ResolveExportGoalPoint(workspace);
+            config.specialTiles = BuildSpecialTilesForExport(workspace);
             config.portals = ClonePortals(workspace.Portals);
             config.waves = CloneWaves(workspace.Waves);
             config.enemies = CloneEnemies(workspace.Enemies);
             config.operators = CloneOperators(workspace.Operators);
+        }
+
+        private static List<Vector2Int> ResolveExportSpawnPoints(LevelEditorWorkspace workspace) {
+            var result = new List<Vector2Int>();
+            if (workspace == null) {
+                return result;
+            }
+
+            if (workspace.SpawnMarkers != null && workspace.SpawnMarkers.Count > 0) {
+                foreach (var marker in workspace.SpawnMarkers) {
+                    if (marker == null || result.Contains(marker.Position)) {
+                        continue;
+                    }
+
+                    result.Add(marker.Position);
+                }
+            }
+
+            return result;
+        }
+
+        private static Vector2Int ResolveExportGoalPoint(LevelEditorWorkspace workspace) {
+            if (workspace != null && workspace.GoalMarkers != null && workspace.GoalMarkers.Count > 0) {
+                foreach (var marker in workspace.GoalMarkers) {
+                    if (marker != null) {
+                        return marker.Position;
+                    }
+                }
+            }
+
+            return new Vector2Int(-1, -1);
         }
 
         private static List<TileData> CloneTiles(LevelEditorWorkspace workspace) {
@@ -84,10 +138,6 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
 
             foreach (var tile in workspace.TileOverrides) {
                 if (tile == null) {
-                    continue;
-                }
-
-                if (workspace.IsSpawnPoint(tile.x, tile.z) || workspace.IsGoalPoint(tile.x, tile.z)) {
                     continue;
                 }
 
@@ -102,6 +152,74 @@ namespace ArknightsLite.Editor.LevelEditor.Services {
             }
 
             return result;
+        }
+
+        private static void EnsureSemanticEndpointTiles(List<TileData> specialTiles, LevelEditorWorkspace workspace) {
+            if (specialTiles == null || workspace == null) {
+                return;
+            }
+
+            if (workspace.SpawnMarkers != null) {
+                foreach (var marker in workspace.SpawnMarkers) {
+                    if (marker != null) {
+                        EnsureExplicitWalkableTile(specialTiles, workspace, marker.Position);
+                    }
+                }
+            }
+
+            if (workspace.GoalMarkers != null) {
+                foreach (var marker in workspace.GoalMarkers) {
+                    if (marker != null) {
+                        EnsureExplicitWalkableTile(specialTiles, workspace, marker.Position);
+                    }
+                }
+            }
+
+            if (workspace.PortalPairs != null) {
+                foreach (var portalPair in workspace.PortalPairs) {
+                    if (portalPair == null) {
+                        continue;
+                    }
+
+                    EnsureExplicitWalkableTile(specialTiles, workspace, portalPair.EntrancePosition);
+                    EnsureExplicitWalkableTile(specialTiles, workspace, portalPair.ExitPosition);
+                }
+            }
+        }
+
+        private static void EnsureExplicitWalkableTile(List<TileData> specialTiles, LevelEditorWorkspace workspace, Vector2Int position) {
+            if (specialTiles == null || workspace == null) {
+                return;
+            }
+
+            TileData explicitTile = BuildExplicitSemanticTile(workspace.GetTileOverride(position.x, position.y), position.x, position.y);
+            TileData existing = specialTiles.Find(tile => tile != null && tile.x == position.x && tile.z == position.y);
+
+            if (existing != null) {
+                existing.tileType = explicitTile.tileType;
+                existing.heightLevel = explicitTile.heightLevel;
+                existing.walkable = explicitTile.walkable;
+                existing.deployTag = explicitTile.deployTag;
+                return;
+            }
+
+            specialTiles.Add(explicitTile);
+        }
+
+        private static TileData BuildExplicitSemanticTile(TileData source, int x, int z) {
+            TileType resolvedType = source != null ? source.tileType : TileType.Ground;
+            if (resolvedType == TileType.Forbidden || resolvedType == TileType.Hole) {
+                resolvedType = TileType.Ground;
+            }
+
+            return new TileData {
+                x = x,
+                z = z,
+                tileType = resolvedType,
+                heightLevel = source != null && resolvedType == TileType.HighGround ? source.heightLevel : 0,
+                walkable = true,
+                deployTag = source != null && !string.IsNullOrWhiteSpace(source.deployTag) ? source.deployTag : "All"
+            };
         }
 
         private static List<PortalDefinition> ClonePortals(List<PortalDefinition> portals) {
